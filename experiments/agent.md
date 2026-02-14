@@ -31,6 +31,8 @@ Currently in the **experimental phase** using shell scripts.
 | `load-image.sh <sqfs-file>` | Target | Mount squashfs image to `data/images/<name>/` (read-only) |
 | `create-container.sh [opts] <image-name> [-- cmd...]` | Target | Read skeleton config from mounted image → patch with security settings → write to `data/containers/<id>/config.json` |
 | `run-container.sh <container-id>` | Target | `sudo crun run --bundle <image-bundle> --config <container-config> <id>` |
+| `remove-container.sh <container-id>` | Target | Kill/delete crun state + remove `data/containers/<id>/` |
+| `remove-image.sh [-d] <image-name>` | Target | Unmount squashfs + remove mount dir. `-d` also deletes .sqfs file |
 
 ### Security configuration
 
@@ -123,6 +125,16 @@ sudo ./create-container.sh -t -n myshell alpine_latest -- /bin/sh
 
 # 4. Run
 ./run-container.sh <container-id>
+
+# === Cleanup ===
+# 5. Remove container
+sudo ./remove-container.sh <container-id>
+
+# 6. Remove image (unmount only, keep .sqfs)
+sudo ./remove-image.sh alpine_latest
+
+# 6b. Remove image and delete .sqfs file
+sudo ./remove-image.sh -d alpine_latest
 ```
 
 ### Testing status
@@ -138,7 +150,8 @@ sudo ./create-container.sh -t -n myshell alpine_latest -- /bin/sh
 - **Networking**: Network namespace is created but not configured. No veth pairs, no bridge, no port mapping. Container only has loopback.
 - **Overlay/writable layer**: Rootfs is read-only. No overlayfs or tmpfs overlay for writes. Data layout has placeholder for upper/work/merged dirs.
 - **User namespace / rootless**: Everything runs as root. No rootless container support.
-- **Container lifecycle management**: No stop/delete/list commands yet.
+- **Container list command**: No `list-containers.sh` to show all containers and their status.
+- **Persistent mounts**: squashfs loop mounts do NOT survive reboot. Must re-run `load-image.sh` after reboot (or add fstab entries).
 
 ### Required packages
 **Build machine**: `skopeo`, `umoci`, `jq`, `squashfs-tools` (for mksquashfs)
