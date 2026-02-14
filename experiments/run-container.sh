@@ -34,7 +34,7 @@ fi
 # Read the image bundle path from metadata
 BUNDLE_PATH=$(jq -r '.imageBundlePath' "$CONTAINER_META")
 
-if [[ ! -d "$BUNDLE_PATH/rootfs" ]]; then
+if ! sudo test -d "$BUNDLE_PATH/rootfs"; then
     echo "Error: Image rootfs not found at $BUNDLE_PATH/rootfs"
     echo "Is the image still mounted? Check load-image.sh."
     exit 1

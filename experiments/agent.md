@@ -126,10 +126,13 @@ sudo ./create-container.sh -t -n myshell alpine_latest -- /bin/sh
 ```
 
 ### Testing status
-- **create-image.sh**: TESTED — successfully pulls, unpacks, and creates .sqfs (alpine = 3.4MB)
-- **load-image.sh**: NOT TESTED — requires loop device support (blocked in LXC, needs VM)
-- **create-container.sh**: TESTED (old flow without squashfs) — seccomp, capabilities, namespaces, readonly rootfs all verified working. New flow (reading from squashfs mount) untested.
-- **run-container.sh**: TESTED (old flow) — container runs, PID namespace isolated, rootfs readonly confirmed. New flow (--config flag) untested.
+- **create-image.sh**: TESTED — successfully pulls, unpacks, and creates .sqfs (alpine = 3.7MB on arm64)
+- **load-image.sh**: TESTED — squashfs mount works in VM (Ubuntu 24.04, kernel 6.8.0-90-generic, aarch64). Loop device + squashfs built into kernel.
+- **create-container.sh**: TESTED (full new flow) — reads skeleton config from squashfs mount, patches seccomp/caps/namespaces/readonly, writes to container dir. Works correctly.
+- **run-container.sh**: TESTED (full new flow) — `crun run --bundle <image> --config <container-config>` works. PID namespace isolated (container sees PID 1), rootfs read-only confirmed (`touch` fails with EROFS). Echo command override works.
+
+### Bug fixes during VM testing
+- **run-container.sh**: `umoci unpack` creates `bundle/` with mode `0700` (root only). The `-d "$BUNDLE_PATH/rootfs"` check failed when run as non-root user (before the `sudo crun` exec). Fixed by changing to `sudo test -d` for the pre-flight check.
 
 ### What's NOT implemented yet
 - **Networking**: Network namespace is created but not configured. No veth pairs, no bridge, no port mapping. Container only has loopback.
@@ -143,4 +146,5 @@ sudo ./create-container.sh -t -n myshell alpine_latest -- /bin/sh
 
 ### Environment notes
 - Development was done in an LXC container (Ubuntu). LXC blocks loop devices by default, preventing squashfs mount testing.
-- Recommend using a **VM** (not LXC) for testing the full flow, as it has its own kernel with full device and module support.
+- Full flow tested in a **VM** (Ubuntu 24.04.3 LTS, aarch64, kernel 6.8.0-90-generic) — squashfs + loop built into kernel, all scripts work end-to-end.
+- Required packages installed on VM: `crun` (1.14.1), `skopeo` (1.13.3), `umoci` (0.4.7), `jq` (1.7), `squashfs-tools` (mksquashfs).
