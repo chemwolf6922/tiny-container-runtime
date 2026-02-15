@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # create-nat-network.sh [options]
-# Creates the global tcr NAT network with a Linux bridge and iptables masquerade.
+# Creates the global tcr NAT network with a Linux bridge and nftables masquerade.
 #
 # This must be run once before using add-nat-network.sh to connect containers.
 # Requires root privileges.
@@ -11,9 +11,8 @@ set -euo pipefail
 #   1. Creates a Linux bridge interface (default: tcr0)
 #   2. Assigns the gateway IP (.1 of the subnet) to the bridge
 #   3. Enables IP forwarding (net.ipv4.ip_forward=1)
-#   4. Adds iptables MASQUERADE rule for the subnet
-#   5. Adds iptables FORWARD rules for bridge traffic
-#   6. Saves network metadata to data/global/tcr-network.json
+#   4. Adds nftables table "inet tcr" with NAT masquerade and forwarding rules
+#   5. Saves network metadata to data/global/tcr-network.json
 #
 # Options:
 #   -s <subnet>   Subnet in CIDR /24 notation (default: 10.88.0.0/24)
@@ -81,9 +80,7 @@ echo "    gateway: $GATEWAY"
 cleanup_on_error() {
     echo "==> Error occurred, rolling back..."
     ip link del "$BRIDGE" 2>/dev/null || true
-    iptables -t nat -D POSTROUTING -s "$SUBNET" ! -o "$BRIDGE" -j MASQUERADE 2>/dev/null || true
-    iptables -D FORWARD -i "$BRIDGE" -j ACCEPT 2>/dev/null || true
-    iptables -D FORWARD -o "$BRIDGE" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
+    nft delete table inet tcr 2>/dev/null || true
     rm -f "$NETWORK_META"
     exit 1
 }
@@ -102,14 +99,18 @@ ip link set "$BRIDGE" up
 echo "==> Enabling IP forwarding..."
 sysctl -w net.ipv4.ip_forward=1 > /dev/null
 
-# ── 3. Set up iptables NAT rules ──
-echo "==> Configuring iptables NAT..."
+# ── 3. Set up nftables NAT rules ──
+# All rules live in a dedicated "inet tcr" table for easy cleanup.
+echo "==> Configuring nftables NAT..."
+nft add table inet tcr
+nft add chain inet tcr postrouting '{ type nat hook postrouting priority 100 ; }'
+nft add chain inet tcr forward '{ type filter hook forward priority 0 ; }'
 # Masquerade traffic from containers going to the outside world
-iptables -t nat -A POSTROUTING -s "$SUBNET" ! -o "$BRIDGE" -j MASQUERADE
+nft add rule inet tcr postrouting ip saddr "$SUBNET" oifname != "$BRIDGE" masquerade
 # Allow forwarding from the bridge to external interfaces
-iptables -A FORWARD -i "$BRIDGE" -j ACCEPT
+nft add rule inet tcr forward iifname "$BRIDGE" accept
 # Allow return traffic to containers
-iptables -A FORWARD -o "$BRIDGE" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+nft add rule inet tcr forward oifname "$BRIDGE" ct state related,established accept
 
 # ── 4. Save network metadata ──
 jq -n \

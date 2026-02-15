@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # remove-global.sh
-# Removes global tcr resources (NAT network bridge, iptables rules, metadata).
+# Removes global tcr resources (NAT network bridge, nftables rules, metadata).
 #
 # This tears down everything created by create-nat-network.sh.
 # All containers using the network should be removed first.
@@ -34,11 +34,9 @@ if [[ -f "$NETWORK_META" ]]; then
     echo "    bridge: $BRIDGE"
     echo "    subnet: $SUBNET"
 
-    # Remove iptables rules
-    echo "==> Removing iptables rules..."
-    iptables -t nat -D POSTROUTING -s "$SUBNET" ! -o "$BRIDGE" -j MASQUERADE 2>/dev/null || true
-    iptables -D FORWARD -i "$BRIDGE" -j ACCEPT 2>/dev/null || true
-    iptables -D FORWARD -o "$BRIDGE" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
+    # Remove nftables table (contains all NAT + forwarding rules)
+    echo "==> Removing nftables table 'inet tcr'..."
+    nft delete table inet tcr 2>/dev/null || true
 
     # Delete bridge (also removes any attached veth host ends)
     if ip link show "$BRIDGE" &>/dev/null; then

@@ -32,12 +32,12 @@ Currently in the **experimental phase** using shell scripts.
 | `create-container.sh [opts] <image-name> [-- cmd...]` | Target | Read skeleton config from mounted image → patch with security settings → write to `data/containers/<id>/config.json` |
 | `add-bind-mount.sh [-r] <container-id> <host-path> <container-path>` | Target | Append a bind mount to container's config.json. `-r` for read-only. |
 | `add-tmp-mount.sh [-s size] [-m mode] <container-id> <container-path>` | Target | Append a tmpfs mount to container's config.json. Default 64m, mode 1777. |
-| `create-nat-network.sh [-s subnet] [-b bridge]` | Target | Create global NAT network: bridge + iptables masquerade. One-time setup. |
+| `create-nat-network.sh [-s subnet] [-b bridge]` | Target | Create global NAT network: bridge + nftables masquerade. One-time setup. |
 | `add-nat-network.sh <container-id>` | Target | Connect container to NAT network: allocate IP, create veth pair, patch config.json |
 | `run-container.sh <container-id>` | Target | `sudo crun run --bundle <image-bundle> --config <container-config> <id>` |
 | `remove-container.sh <container-id>` | Target | Kill/delete crun state + clean up network + remove `data/containers/<id>/` |
 | `remove-image.sh [-d] <image-name>` | Target | Unmount squashfs + remove mount dir. `-d` also deletes .sqfs file |
-| `remove-global.sh` | Target | Remove global resources: tear down NAT bridge, iptables rules, delete `data/global/` |
+| `remove-global.sh` | Target | Remove global resources: tear down NAT bridge, nftables rules, delete `data/global/` |
 
 ### Security configuration
 
@@ -66,14 +66,14 @@ Set on all 5 capability sets: bounding, effective, inheritable, permitted, ambie
 **Architecture**: Pre-configured named network namespaces.
 
 Instead of using OCI hooks or CNI plugins, networking is set up *before* `crun run`:
-1. `create-nat-network.sh` creates a Linux bridge (`tcr0`) with iptables MASQUERADE — run once.
+1. `create-nat-network.sh` creates a Linux bridge (`tcr0`) with nftables masquerade — run once.
 2. `add-nat-network.sh` (per container) creates a named netns (`tcr-<container-id>`), a veth pair, assigns an IP, and patches `config.json` to point to the pre-existing netns via `linux.namespaces[].path`.
 3. `crun run` joins the pre-configured namespace instead of creating a new empty one.
 
 **Bridge setup** (`create-nat-network.sh`):
 - Default bridge: `tcr0`, subnet `10.88.0.0/24`, gateway `10.88.0.1`
 - Enables `net.ipv4.ip_forward=1`
-- iptables rules: `MASQUERADE` on POSTROUTING + `ACCEPT` on FORWARD for bridge traffic
+- nftables: dedicated `table inet tcr` with NAT masquerade chain + forwarding chain
 - Metadata stored in `data/global/tcr-network.json`
 
 **Per-container setup** (`add-nat-network.sh`):
@@ -121,7 +121,7 @@ experiments/
   run-container.sh          # [target] mount overlay (if rw) + crun run
   remove-container.sh       # [target] kill + unmount overlay + rm network + rm container dir
   remove-image.sh           # [target] unmount squashfs + rm mount dir
-  remove-global.sh          # [target] tear down NAT bridge + iptables + rm data/global/
+  remove-global.sh          # [target] tear down NAT bridge + nftables + rm data/global/
   agent.md                  # this file
   data/
     global/
@@ -215,7 +215,7 @@ sudo ./remove-global.sh
 - **add-bind-mount.sh**: TESTED — directory bind mount (`/mnt`) and file bind mount (`/etc/hostname`) both work. Works with both read-only and overlay (read-write) rootfs.
 - **add-tmp-mount.sh**: TESTED — tmpfs mount on `/tmp` (16m) works with read-only rootfs. Container can write to tmpfs, `df` shows correct size.
 - **run-container.sh**: TESTED (full new flow) — mounts overlayfs before `crun run` (read-write mode), unmounts on exit. PID namespace isolated (PID 1). Read-only mode: `touch` fails with EROFS. Read-write mode: `touch` succeeds, written file appears in overlay upper layer.
-- **create-nat-network.sh**: TESTED — creates bridge `tcr0` with gateway 10.88.0.1/24, iptables MASQUERADE rule, metadata written to `data/global/tcr-network.json`.
+- **create-nat-network.sh**: TESTED — creates bridge `tcr0` with gateway 10.88.0.1/24, nftables `inet tcr` table with masquerade, metadata written to `data/global/tcr-network.json`.
 - **add-nat-network.sh**: TESTED — allocates IP (10.88.0.2), creates named netns + veth pair, patches config.json. Container successfully pings `bing.com` via NAT. DNS resolution works.
 - **remove-container.sh**: network cleanup verified — deletes netns, veth, removes IP allocation from network metadata.
 
@@ -232,5 +232,5 @@ sudo ./remove-global.sh
 
 ### Required packages
 **Build machine**: `skopeo`, `umoci`, `jq`, `squashfs-tools` (for mksquashfs)
-**Target device**: `crun`, `jq`, `iproute2` (for `ip` commands), `iptables`, kernel with `squashfs` + `loop` + `overlayfs` + `veth` + `bridge` modules
+**Target device**: `crun`, `jq`, `iproute2` (for `ip` commands), `nftables`, kernel with `squashfs` + `loop` + `overlayfs` + `veth` + `bridge` + `nf_tables` modules
 
