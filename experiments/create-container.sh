@@ -7,13 +7,16 @@ set -euo pipefail
 # Reads the skeleton config.json from data/images/<image>/bundle/ (squashfs mount,
 # read-only) and writes a patched config.json to data/containers/<container-id>/
 # with proper security settings:
-#   - readonly rootfs
 #   - default Docker/Podman capabilities
 #   - OCI seccomp profile (from containers/common)
 #   - namespaces (pid, mount, ipc, uts, network)
 #
+# By default, an overlayfs is set up with the image rootfs as the lower layer,
+# giving the container a writable filesystem. Use -r for read-only rootfs.
+#
 # Options:
 #   -t            Enable pseudo-TTY (for interactive use)
+#   -r            Read-only rootfs (no overlay, image rootfs used directly)
 #   -n <name>     Container ID/name (default: <image>-<random>)
 #
 # Everything after "--" overrides the image's default command.
@@ -21,6 +24,7 @@ set -euo pipefail
 #
 # Examples:
 #   sudo ./create-container.sh alpine_latest
+#   sudo ./create-container.sh -r alpine_latest
 #   sudo ./create-container.sh -t -n myshell alpine_latest -- /bin/sh
 #   sudo ./create-container.sh alpine_latest -- echo hello
 
@@ -32,11 +36,13 @@ SECCOMP_SRC="$SCRIPT_DIR/seccomp.json"
 
 # ── Parse options ──
 TTY_MODE=false
+READONLY_MODE=false
 CONTAINER_ID=""
 
-while getopts ":tn:" opt; do
+while getopts ":trn:" opt; do
     case $opt in
         t) TTY_MODE=true ;;
+        r) READONLY_MODE=true ;;
         n) CONTAINER_ID="$OPTARG" ;;
         \?) echo "Unknown option: -$OPTARG" >&2; exit 1 ;;
         :)  echo "Option -$OPTARG requires an argument" >&2; exit 1 ;;
@@ -47,6 +53,7 @@ shift $((OPTIND - 1))
 if [[ $# -lt 1 ]]; then
     echo "Usage: $0 [options] <image-name> [-- cmd...]"
     echo "  -t          Enable pseudo-TTY (interactive)"
+    echo "  -r          Read-only rootfs (no overlay)"
     echo "  -n <name>   Container name (default: auto)"
     echo "  --          Override container command"
     echo "Example: $0 -t -n myshell alpine_latest -- /bin/sh"
@@ -161,9 +168,28 @@ DEFAULT_CAPS='[
 # Read the skeleton config from the image (read-only squashfs mount)
 CONFIG=$(cat "$IMAGE_CONFIG")
 
-# Point root.path to the image's rootfs (absolute path, since config.json
-# will live in a different directory than the bundle)
-ROOTFS_PATH="$(realpath "$IMAGE_BUNDLE/rootfs")"
+# ── Set up rootfs ──
+IMAGE_ROOTFS="$(realpath "$IMAGE_BUNDLE/rootfs")"
+
+if [[ "$READONLY_MODE" == true ]]; then
+    # Read-only: point directly to the image rootfs
+    ROOTFS_PATH="$IMAGE_ROOTFS"
+    echo "==> Rootfs: read-only (direct image rootfs)"
+else
+    # Read-write: create overlayfs directories
+    # The actual mount is done by run-container.sh before crun run
+    OVERLAY_DIR="$CONTAINER_DIR/overlay"
+    UPPER_DIR="$OVERLAY_DIR/upper"
+    WORK_DIR="$OVERLAY_DIR/work"
+    MERGED_DIR="$OVERLAY_DIR/merged"
+    mkdir -p "$UPPER_DIR" "$WORK_DIR" "$MERGED_DIR"
+    ROOTFS_PATH="$MERGED_DIR"
+    echo "==> Rootfs: read-write (overlayfs)"
+    echo "    lower:  $IMAGE_ROOTFS"
+    echo "    upper:  $UPPER_DIR"
+    echo "    merged: $MERGED_DIR"
+fi
+
 CONFIG=$(echo "$CONFIG" | jq --arg rootfs "$ROOTFS_PATH" '.root.path = $rootfs')
 
 # Override command if specified
@@ -177,13 +203,15 @@ fi
 
 # Apply all patches
 TTY_JSON=$(if [[ "$TTY_MODE" == true ]]; then echo "true"; else echo "false"; fi)
+READONLY_JSON=$(if [[ "$READONLY_MODE" == true ]]; then echo "true"; else echo "false"; fi)
 CONFIG=$(echo "$CONFIG" | jq \
     --argjson seccomp "$OCI_SECCOMP" \
     --argjson caps "$DEFAULT_CAPS" \
     --argjson tty "$TTY_JSON" \
+    --argjson readonly "$READONLY_JSON" \
     '
-    # Readonly rootfs
-    .root.readonly = true
+    # Rootfs mode
+    .root.readonly = $readonly
 
     # Terminal mode
     | .process.terminal = $tty
@@ -237,16 +265,28 @@ CONFIG=$(echo "$CONFIG" | jq \
 echo "$CONFIG" | jq . > "$CONTAINER_CONFIG"
 
 # Write a small metadata file for run-container.sh
-cat > "$CONTAINER_DIR/tcr-container.json" <<EOF
-{
-    "containerId": "$CONTAINER_ID",
-    "imageName": "$IMAGE_NAME",
-    "imageBundlePath": "$(realpath "$IMAGE_BUNDLE")",
-    "created": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-}
-EOF
+# Build metadata
+META=$(jq -n \
+    --arg id "$CONTAINER_ID" \
+    --arg image "$IMAGE_NAME" \
+    --arg bundle "$(realpath "$IMAGE_BUNDLE")" \
+    --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --argjson readonly "$READONLY_JSON" \
+    '{containerId: $id, imageName: $image, imageBundlePath: $bundle, readonly: $readonly, created: $created}')
+
+if [[ "$READONLY_MODE" != true ]]; then
+    META=$(echo "$META" | jq \
+        --arg lower "$IMAGE_ROOTFS" \
+        --arg upper "$UPPER_DIR" \
+        --arg work "$WORK_DIR" \
+        --arg merged "$MERGED_DIR" \
+        '. + {overlay: {lower: $lower, upper: $upper, work: $work, merged: $merged}}')
+fi
+
+echo "$META" | jq . > "$CONTAINER_DIR/tcr-container.json"
 
 echo "==> Config written: $CONTAINER_CONFIG"
+echo "    readonly: $READONLY_MODE"
 echo "    terminal: $TTY_MODE"
 echo "    command: $(echo "$CONFIG" | jq -c '.process.args')"
 echo "    rootfs: $(echo "$CONFIG" | jq -r '.root.path')"

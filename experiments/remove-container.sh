@@ -44,6 +44,13 @@ if sudo crun list 2>/dev/null | grep -q "^$CONTAINER_ID "; then
     sudo crun delete "$CONTAINER_ID" 2>/dev/null || true
 fi
 
+# Unmount overlay if mounted
+MERGED_DIR="$CONTAINER_DIR/overlay/merged"
+if mountpoint -q "$MERGED_DIR" 2>/dev/null; then
+    echo "==> Unmounting overlay at $MERGED_DIR"
+    sudo umount "$MERGED_DIR"
+fi
+
 # Remove the container directory
 echo "==> Removing $CONTAINER_DIR"
 sudo rm -rf "$CONTAINER_DIR"

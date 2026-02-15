@@ -43,4 +43,29 @@ fi
 echo "==> Running container '$CONTAINER_ID'"
 echo "    config: $CONTAINER_CONFIG"
 echo "    bundle: $BUNDLE_PATH"
-exec sudo crun run --bundle "$BUNDLE_PATH" --config "$CONTAINER_CONFIG" "$CONTAINER_ID"
+
+# If overlay is configured, mount it before running crun
+IS_READONLY=$(jq -r 'if .readonly == false then "false" else "true" end' "$CONTAINER_META")
+if [[ "$IS_READONLY" != "true" ]]; then
+    LOWER=$(jq -r '.overlay.lower' "$CONTAINER_META")
+    UPPER=$(jq -r '.overlay.upper' "$CONTAINER_META")
+    WORK=$(jq -r '.overlay.work' "$CONTAINER_META")
+    MERGED=$(jq -r '.overlay.merged' "$CONTAINER_META")
+
+    if mountpoint -q "$MERGED" 2>/dev/null; then
+        echo "    overlay: already mounted"
+    else
+        echo "    overlay: mounting (lower=$LOWER)"
+        sudo mount -t overlay overlay \
+            -o "lowerdir=$LOWER,upperdir=$UPPER,workdir=$WORK" \
+            "$MERGED"
+    fi
+
+    # Unmount overlay after crun exits (whether success or failure)
+    cleanup_overlay() {
+        sudo umount "$MERGED" 2>/dev/null || true
+    }
+    trap cleanup_overlay EXIT
+fi
+
+sudo crun run --bundle "$BUNDLE_PATH" --config "$CONTAINER_CONFIG" "$CONTAINER_ID"
