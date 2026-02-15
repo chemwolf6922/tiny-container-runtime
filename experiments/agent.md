@@ -34,6 +34,7 @@ Currently in the **experimental phase** using shell scripts.
 | `add-tmp-mount.sh [-s size] [-m mode] <container-id> <container-path>` | Target | Append a tmpfs mount to container's config.json. Default 64m, mode 1777. |
 | `create-nat-network.sh [-s subnet] [-b bridge]` | Target | Create global NAT network: bridge + nftables masquerade. One-time setup. |
 | `add-nat-network.sh <container-id>` | Target | Connect container to NAT network: allocate IP, create veth pair, patch config.json |
+| `forward-port.sh <container-id> [host-ip:]<host-port>:<container-port>[/<proto>]` | Target | Add nftables DNAT rule to forward external traffic to a container port |
 | `run-container.sh <container-id>` | Target | `sudo crun run --bundle <image-bundle> --config <container-config> <id>` |
 | `remove-container.sh <container-id>` | Target | Kill/delete crun state + clean up network + remove `data/containers/<id>/` |
 | `remove-image.sh [-d] <image-name>` | Target | Unmount squashfs + remove mount dir. `-d` also deletes .sqfs file |
@@ -83,12 +84,28 @@ Instead of using OCI hooks or CNI plugins, networking is set up *before* `crun r
 - Configures in netns: IP address, loopback up, default route via gateway
 - Generates `resolv.conf` from host's nameservers, bind-mounts into container
 - Patches `config.json`: `{"type": "network", "path": "/var/run/netns/tcr-<id>"}`
+- Adds `/etc/hosts` entry: `<ip> tcr-<container-id> # tcr:<container-id>` (flock-protected)
 - Updates `tcr-container.json` with network info (ip, gateway, netns, vethHost)
+- Host-local access: `curl http://tcr-<container-id>:<port>/` (resolved via `/etc/hosts`)
+
+**Port forwarding** (`forward-port.sh`):
+- Forwards **external traffic only** (prerouting DNAT). For host-local access, use the container IP directly.
+- Lazily creates `chain prerouting { type nat hook prerouting priority -100 ; }` in `table inet tcr` on first use (no changes needed to `create-nat-network.sh`)
+- Adds DNAT rule: `<proto> dport <host-port> dnat ip to <container-ip>:<container-port>` (or with `ip daddr` for specific host IP)
+- Adds forward accept rule: `ip daddr <container-ip> <proto> dport <container-port> accept`
+- All rules tagged with `comment "tcr-<container-id>"` for per-container cleanup
+- Default host IP: `0.0.0.0` (all interfaces)
+- Localhost (`127.x.x.x`) binding is rejected — nftables prerouting DNAT does not intercept locally generated traffic (those hit the output hook, and making that work requires `route_localnet=1` which has security implications)
+- Default protocol: `tcp`
+- Port availability checked via `ss` before adding rules — no global port allocation table
+- Metadata stored in `tcr-container.json` as `portForwards` array
 
 **Cleanup** (`remove-container.sh`):
+- Removes port forwarding nftables rules by scanning for `comment "tcr-<container-id>"` handles
 - Deletes named netns (auto-destroys container-side veth)
 - Deletes host-side veth (if still present)
 - Removes IP allocation from `tcr-network.json`
+- Removes `/etc/hosts` entry (flock-protected, matched by `# tcr:<container-id>` comment)
 
 **DNS**: `add-nat-network.sh` copies the host's `/etc/resolv.conf` nameserver entries into a per-container `resolv.conf` file and bind-mounts it read-only at `/etc/resolv.conf` inside the container.
 
@@ -118,6 +135,7 @@ experiments/
   add-tmp-mount.sh          # [target] add tmpfs mount to container config
   create-nat-network.sh     # [target] create bridge + NAT (one-time)
   add-nat-network.sh        # [target] connect container to NAT network
+  forward-port.sh           # [target] add host→container port forwarding (nftables DNAT)
   run-container.sh          # [target] mount overlay (if rw) + crun run
   remove-container.sh       # [target] kill + unmount overlay + rm network + rm container dir
   remove-image.sh           # [target] unmount squashfs + rm mount dir
@@ -139,6 +157,8 @@ experiments/
         tcr-container.json   # container metadata (id, image, overlay paths, readonly flag, network)
         resolv.conf          # (NAT network only) generated DNS config, bind-mounted
         overlay/             # (read-write mode only)
+        # tcr-container.json portForwards example:
+        # [{"hostIp": "127.0.0.1", "hostPort": 8080, "containerPort": 80, "protocol": "tcp"}]
           upper/             # overlayfs upper layer (container writes land here)
           work/              # overlayfs work dir (required by kernel)
           merged/            # overlayfs merged mount point (used as container rootfs)
@@ -191,6 +211,11 @@ sudo ./add-tmp-mount.sh -s 16m -m 0755 <container-id> /var/cache
 sudo ./create-nat-network.sh   # one-time setup
 sudo ./add-nat-network.sh <container-id>
 
+# 3g. Forward ports from host to container (optional, before run)
+sudo ./forward-port.sh <container-id> 8080:80              # all interfaces (0.0.0.0)
+sudo ./forward-port.sh <container-id> 192.168.1.10:443:443/tcp  # specific IP
+sudo ./forward-port.sh <container-id> 5353:53/udp           # UDP
+
 # 4. Run
 ./run-container.sh <container-id>
 
@@ -216,19 +241,24 @@ sudo ./remove-global.sh
 - **add-tmp-mount.sh**: TESTED — tmpfs mount on `/tmp` (16m) works with read-only rootfs. Container can write to tmpfs, `df` shows correct size.
 - **run-container.sh**: TESTED (full new flow) — mounts overlayfs before `crun run` (read-write mode), unmounts on exit. PID namespace isolated (PID 1). Read-only mode: `touch` fails with EROFS. Read-write mode: `touch` succeeds, written file appears in overlay upper layer.
 - **create-nat-network.sh**: TESTED — creates bridge `tcr0` with gateway 10.88.0.1/24, nftables `inet tcr` table with masquerade, metadata written to `data/global/tcr-network.json`.
-- **add-nat-network.sh**: TESTED — allocates IP (10.88.0.2), creates named netns + veth pair, patches config.json. Container successfully pings `bing.com` via NAT. DNS resolution works.
-- **remove-container.sh**: network cleanup verified — deletes netns, veth, removes IP allocation from network metadata.
+- **add-nat-network.sh**: TESTED — allocates IP (10.88.0.2), creates named netns + veth pair, patches config.json. Container successfully pings `bing.com` via NAT. DNS resolution works. Adds `/etc/hosts` entry (`tcr-<id>` → container IP); `curl http://tcr-<id>:<port>/` verified working from host.
+- **remove-container.sh**: TESTED — network cleanup verified: deletes netns, veth, removes IP allocation, removes `/etc/hosts` entry, removes port forwarding nftables rules. Fixed `pipefail` bug where empty `grep` in nftables rule cleanup caused script to abort.
 
 ### Bug fixes during VM testing
 - **run-container.sh**: `umoci unpack` creates `bundle/` with mode `0700` (root only). The `-d "$BUNDLE_PATH/rootfs"` check failed when run as non-root user (before the `sudo crun` exec). Fixed by changing to `sudo test -d` for the pre-flight check.
 - **run-container.sh**: jq `//` (alternative operator) treats `false` as falsy, so `.readonly // true` returned `true` even when `readonly` was `false`. Fixed by using explicit `if .readonly == false then "false" else "true" end`.
 - **add-nat-network.sh**: On systems with systemd-resolved, `/etc/resolv.conf` contains stub resolver `127.0.0.53` which is unreachable from container netns. Fixed by using `resolvectl status` to extract actual upstream DNS servers, falling back to non-stub entries in `/etc/resolv.conf`, then public DNS (8.8.8.8) as last resort.
 
+- **remove-container.sh**: Fixed `pipefail` + `grep` returning exit 1 when no port forwarding rules exist — pipeline `grep | grep | while read` fails under `set -euo pipefail` if no matches. Fixed by capturing handles into a variable with `|| true`, then iterating.
+
 ### What's NOT implemented yet
-- **Networking (NAT)**: Basic NAT networking works (`create-nat-network.sh` + `add-nat-network.sh`). No port mapping / port forwarding from host to container yet.
+- **forward-port.sh**: PARTIAL — nftables DNAT rules added correctly, cleanup works. Direct container IP access verified (`curl http://10.88.0.2:80/`). Localhost forwarding intentionally not supported (prerouting DNAT only handles external traffic). Full external-traffic test pending (requires second machine or network namespace).
 - **User namespace / rootless**: Everything runs as root. No rootless container support.
 - **Container list command**: No `list-containers.sh` to show all containers and their status.
 - **Persistent mounts**: squashfs loop mounts do NOT survive reboot. Must re-run `load-image.sh` after reboot (or add fstab entries).
+
+### Future plans (C implementation phase)
+- **DNS forwarder on NAT gateway** (`10.88.0.1:53`): A lightweight UDP forwarder that handles container DNS. Resolves `tcr-*` queries to container IPs (inter-container discovery), forwards all other queries to the host's resolver. This replaces the current `resolv.conf` generation hack (which tries to detect upstream DNS behind systemd-resolved) with a reliable single nameserver entry. Containers would just use `nameserver 10.88.0.1`. A few hundred lines of C.
 
 ### Required packages
 **Build machine**: `skopeo`, `umoci`, `jq`, `squashfs-tools` (for mksquashfs)

@@ -236,12 +236,24 @@ jq --arg id "$CONTAINER_ID" --arg ip "$CONTAINER_IP" \
    "$NETWORK_META" > "$NETWORK_META.tmp" \
    && mv "$NETWORK_META.tmp" "$NETWORK_META"
 
+# ── Add /etc/hosts entry for host-local DNS resolution ──
+HOSTNAME_ENTRY="tcr-${CONTAINER_ID}"
+echo "==> Adding /etc/hosts entry: $CONTAINER_IP $HOSTNAME_ENTRY"
+(
+    flock -w 5 200 || { echo "Warning: Could not lock /etc/hosts, skipping"; exit 0; }
+    # Remove any stale entry for this container first
+    sed -i "/# tcr:${CONTAINER_ID}$/d" /etc/hosts
+    echo "$CONTAINER_IP $HOSTNAME_ENTRY # tcr:${CONTAINER_ID}" >> /etc/hosts
+) 200>/etc/hosts.tcr.lock
+
 trap - ERR
 
 echo "==> Network configured for container '$CONTAINER_ID'"
 echo "    IP:      $CONTAINER_IP/24"
 echo "    Gateway: $GATEWAY"
 echo "    DNS:     $(grep 'nameserver' "$RESOLV_FILE" | head -1)"
+echo "    Host:    $HOSTNAME_ENTRY -> $CONTAINER_IP"
 echo ""
 echo "To verify (from host): ip netns exec $NETNS_NAME ip addr"
+echo "Host-local access:     curl http://$HOSTNAME_ENTRY:<port>/"
 echo "To run:                ./run-container.sh $CONTAINER_ID"

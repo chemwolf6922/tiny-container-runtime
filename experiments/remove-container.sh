@@ -59,6 +59,23 @@ if [[ -f "$CONTAINER_META" ]] && jq -e '.network' "$CONTAINER_META" &>/dev/null;
     NETNS_NAME=$(jq -r '.network.netns' "$CONTAINER_META")
     VETH_HOST=$(jq -r '.network.vethHost' "$CONTAINER_META")
 
+    # Remove port forwarding nftables rules (tagged with comment "tcr-<container-id>")
+    if nft list table inet tcr &>/dev/null; then
+        COMMENT="tcr-${CONTAINER_ID}"
+        for chain in prerouting forward; do
+            if nft list chain inet tcr "$chain" &>/dev/null; then
+                # Find rule handles matching our comment tag
+                HANDLES=$(nft -a list chain inet tcr "$chain" 2>/dev/null \
+                    | grep "comment \"$COMMENT\"" \
+                    | grep -oP 'handle \K[0-9]+' || true)
+                for handle in $HANDLES; do
+                    nft delete rule inet tcr "$chain" handle "$handle"
+                    echo "==> Removed port forwarding rule (chain=$chain, handle=$handle)"
+                done
+            fi
+        done
+    fi
+
     # Delete host-side veth (may already be gone if netns was deleted)
     if ip link show "$VETH_HOST" &>/dev/null; then
         echo "==> Deleting veth $VETH_HOST"
@@ -77,6 +94,15 @@ if [[ -f "$CONTAINER_META" ]] && jq -e '.network' "$CONTAINER_META" &>/dev/null;
         jq --arg id "$CONTAINER_ID" 'del(.allocations[$id])' \
             "$NETWORK_META" > "$NETWORK_META.tmp" \
             && mv "$NETWORK_META.tmp" "$NETWORK_META"
+    fi
+
+    # Remove /etc/hosts entry
+    if grep -q "# tcr:${CONTAINER_ID}$" /etc/hosts 2>/dev/null; then
+        echo "==> Removing /etc/hosts entry for tcr-${CONTAINER_ID}"
+        (
+            flock -w 5 200 || { echo "Warning: Could not lock /etc/hosts, skipping"; }
+            sed -i "/# tcr:${CONTAINER_ID}$/d" /etc/hosts
+        ) 200>/etc/hosts.tcr.lock
     fi
 fi
 
