@@ -32,9 +32,12 @@ Currently in the **experimental phase** using shell scripts.
 | `create-container.sh [opts] <image-name> [-- cmd...]` | Target | Read skeleton config from mounted image → patch with security settings → write to `data/containers/<id>/config.json` |
 | `add-bind-mount.sh [-r] <container-id> <host-path> <container-path>` | Target | Append a bind mount to container's config.json. `-r` for read-only. |
 | `add-tmp-mount.sh [-s size] [-m mode] <container-id> <container-path>` | Target | Append a tmpfs mount to container's config.json. Default 64m, mode 1777. |
+| `create-nat-network.sh [-s subnet] [-b bridge]` | Target | Create global NAT network: bridge + iptables masquerade. One-time setup. |
+| `add-nat-network.sh <container-id>` | Target | Connect container to NAT network: allocate IP, create veth pair, patch config.json |
 | `run-container.sh <container-id>` | Target | `sudo crun run --bundle <image-bundle> --config <container-config> <id>` |
-| `remove-container.sh <container-id>` | Target | Kill/delete crun state + remove `data/containers/<id>/` |
+| `remove-container.sh <container-id>` | Target | Kill/delete crun state + clean up network + remove `data/containers/<id>/` |
 | `remove-image.sh [-d] <image-name>` | Target | Unmount squashfs + remove mount dir. `-d` also deletes .sqfs file |
+| `remove-global.sh` | Target | Remove global resources: tear down NAT bridge, iptables rules, delete `data/global/` |
 
 ### Security configuration
 
@@ -54,9 +57,45 @@ CAP_NET_BIND_SERVICE, CAP_SYS_CHROOT, CAP_KILL, CAP_AUDIT_WRITE
 ```
 Set on all 5 capability sets: bounding, effective, inheritable, permitted, ambient.
 
-**Namespaces**: pid, ipc, uts, mount, network (network namespace created but not configured — container gets loopback only).
+**Namespaces**: pid, ipc, uts, mount, network. By default, crun creates a new (empty) network namespace (loopback only). Use `add-nat-network.sh` to pre-configure a named netns with full NAT connectivity before running the container.
 
 **Rootfs**: Default is read-write via overlayfs (image rootfs as lower layer, per-container upper layer for writes). Use `-r` flag in `create-container.sh` for read-only mode (direct image rootfs, no overlay).
+
+### Networking (NAT)
+
+**Architecture**: Pre-configured named network namespaces.
+
+Instead of using OCI hooks or CNI plugins, networking is set up *before* `crun run`:
+1. `create-nat-network.sh` creates a Linux bridge (`tcr0`) with iptables MASQUERADE — run once.
+2. `add-nat-network.sh` (per container) creates a named netns (`tcr-<container-id>`), a veth pair, assigns an IP, and patches `config.json` to point to the pre-existing netns via `linux.namespaces[].path`.
+3. `crun run` joins the pre-configured namespace instead of creating a new empty one.
+
+**Bridge setup** (`create-nat-network.sh`):
+- Default bridge: `tcr0`, subnet `10.88.0.0/24`, gateway `10.88.0.1`
+- Enables `net.ipv4.ip_forward=1`
+- iptables rules: `MASQUERADE` on POSTROUTING + `ACCEPT` on FORWARD for bridge traffic
+- Metadata stored in `data/global/tcr-network.json`
+
+**Per-container setup** (`add-nat-network.sh`):
+- IP allocation: scans `tcr-network.json` allocations, picks lowest unused `.2`–`.254`
+- Creates named netns: `ip netns add tcr-<container-id>`
+- Creates veth pair: `veth<hash>` (host, attached to bridge) ↔ `eth0` (in netns)
+- Configures in netns: IP address, loopback up, default route via gateway
+- Generates `resolv.conf` from host's nameservers, bind-mounts into container
+- Patches `config.json`: `{"type": "network", "path": "/var/run/netns/tcr-<id>"}`
+- Updates `tcr-container.json` with network info (ip, gateway, netns, vethHost)
+
+**Cleanup** (`remove-container.sh`):
+- Deletes named netns (auto-destroys container-side veth)
+- Deletes host-side veth (if still present)
+- Removes IP allocation from `tcr-network.json`
+
+**DNS**: `add-nat-network.sh` copies the host's `/etc/resolv.conf` nameserver entries into a per-container `resolv.conf` file and bind-mounts it read-only at `/etc/resolv.conf` inside the container.
+
+**Key design decision**: Named netns approach was chosen over OCI hooks because:
+- No external hook binaries needed (simpler for embedded devices)
+- Network can be verified from the host before container starts (`ip netns exec tcr-<id> ip addr`)
+- Cleanup is straightforward (`ip netns del` + remove allocation)
 
 ### Key constraints & gotchas
 
@@ -66,7 +105,7 @@ Set on all 5 capability sets: bounding, effective, inheritable, permitted, ambie
 4. **crun has no command-line override for the container entrypoint** — the command must be baked into `config.json` before `crun run`. That's why command override is in `create-container.sh`, not `run-container.sh`. crun does support `--config` flag to use a config.json from a separate path than the bundle.
 5. **Container IDs must be unique** — `crun run` will fail if a container with the same ID already exists (from a previous unclean exit). Use `sudo crun delete <id>` to clean up.
 6. **squashfs as container image format** — squashfs is read-only, highly compressed, supports random access (no full extraction needed). It works as overlayfs lowerdir (proven by snap, OpenWrt, etc.). This is the chosen image distribution format.
-7. **squashfs mount requires loop devices** — won't work inside unprivileged LXC containers without host config changes. Use a VM for development/testing instead.
+7. **squashfs mount requires loop devices** — kernel must have `loop` and `squashfs` modules.
 
 ### Data layout
 ```
@@ -77,11 +116,16 @@ experiments/
   create-container.sh       # [target] patch config, set up overlay dirs
   add-bind-mount.sh         # [target] add bind mount to container config
   add-tmp-mount.sh          # [target] add tmpfs mount to container config
+  create-nat-network.sh     # [target] create bridge + NAT (one-time)
+  add-nat-network.sh        # [target] connect container to NAT network
   run-container.sh          # [target] mount overlay (if rw) + crun run
-  remove-container.sh       # [target] kill + unmount overlay + rm container dir
+  remove-container.sh       # [target] kill + unmount overlay + rm network + rm container dir
   remove-image.sh           # [target] unmount squashfs + rm mount dir
+  remove-global.sh          # [target] tear down NAT bridge + iptables + rm data/global/
   agent.md                  # this file
   data/
+    global/
+      tcr-network.json      # NAT network metadata (bridge, subnet, IP allocations)
     <name>.sqfs             # squashfs image files (output of create-image.sh)
     images/
       <name>/               # squashfs mount point (from load-image.sh, read-only)
@@ -92,7 +136,8 @@ experiments/
     containers/
       <container-id>/        # per-instance writable directory
         config.json          # patched config (security, command, tty, rootfs path)
-        tcr-container.json   # container metadata (id, image, overlay paths, readonly flag)
+        tcr-container.json   # container metadata (id, image, overlay paths, readonly flag, network)
+        resolv.conf          # (NAT network only) generated DNS config, bind-mounted
         overlay/             # (read-write mode only)
           upper/             # overlayfs upper layer (container writes land here)
           work/              # overlayfs work dir (required by kernel)
@@ -142,6 +187,10 @@ sudo ./add-bind-mount.sh <container-id> /host/path /container/path
 sudo ./add-tmp-mount.sh <container-id> /tmp
 sudo ./add-tmp-mount.sh -s 16m -m 0755 <container-id> /var/cache
 
+# 3f. Connect to NAT network (optional, before run)
+sudo ./create-nat-network.sh   # one-time setup
+sudo ./add-nat-network.sh <container-id>
+
 # 4. Run
 ./run-container.sh <container-id>
 
@@ -154,6 +203,9 @@ sudo ./remove-image.sh alpine_latest
 
 # 6b. Remove image and delete .sqfs file
 sudo ./remove-image.sh -d alpine_latest
+
+# 7. Remove global resources (NAT network)
+sudo ./remove-global.sh
 ```
 
 ### Testing status
@@ -163,22 +215,22 @@ sudo ./remove-image.sh -d alpine_latest
 - **add-bind-mount.sh**: TESTED — directory bind mount (`/mnt`) and file bind mount (`/etc/hostname`) both work. Works with both read-only and overlay (read-write) rootfs.
 - **add-tmp-mount.sh**: TESTED — tmpfs mount on `/tmp` (16m) works with read-only rootfs. Container can write to tmpfs, `df` shows correct size.
 - **run-container.sh**: TESTED (full new flow) — mounts overlayfs before `crun run` (read-write mode), unmounts on exit. PID namespace isolated (PID 1). Read-only mode: `touch` fails with EROFS. Read-write mode: `touch` succeeds, written file appears in overlay upper layer.
+- **create-nat-network.sh**: TESTED — creates bridge `tcr0` with gateway 10.88.0.1/24, iptables MASQUERADE rule, metadata written to `data/global/tcr-network.json`.
+- **add-nat-network.sh**: TESTED — allocates IP (10.88.0.2), creates named netns + veth pair, patches config.json. Container successfully pings `bing.com` via NAT. DNS resolution works.
+- **remove-container.sh**: network cleanup verified — deletes netns, veth, removes IP allocation from network metadata.
 
 ### Bug fixes during VM testing
 - **run-container.sh**: `umoci unpack` creates `bundle/` with mode `0700` (root only). The `-d "$BUNDLE_PATH/rootfs"` check failed when run as non-root user (before the `sudo crun` exec). Fixed by changing to `sudo test -d` for the pre-flight check.
 - **run-container.sh**: jq `//` (alternative operator) treats `false` as falsy, so `.readonly // true` returned `true` even when `readonly` was `false`. Fixed by using explicit `if .readonly == false then "false" else "true" end`.
+- **add-nat-network.sh**: On systems with systemd-resolved, `/etc/resolv.conf` contains stub resolver `127.0.0.53` which is unreachable from container netns. Fixed by using `resolvectl status` to extract actual upstream DNS servers, falling back to non-stub entries in `/etc/resolv.conf`, then public DNS (8.8.8.8) as last resort.
 
 ### What's NOT implemented yet
-- **Networking**: Network namespace is created but not configured. No veth pairs, no bridge, no port mapping. Container only has loopback.
+- **Networking (NAT)**: Basic NAT networking works (`create-nat-network.sh` + `add-nat-network.sh`). No port mapping / port forwarding from host to container yet.
 - **User namespace / rootless**: Everything runs as root. No rootless container support.
 - **Container list command**: No `list-containers.sh` to show all containers and their status.
 - **Persistent mounts**: squashfs loop mounts do NOT survive reboot. Must re-run `load-image.sh` after reboot (or add fstab entries).
 
 ### Required packages
 **Build machine**: `skopeo`, `umoci`, `jq`, `squashfs-tools` (for mksquashfs)
-**Target device**: `crun`, `jq`, kernel with `squashfs` + `loop` + `overlayfs` modules
+**Target device**: `crun`, `jq`, `iproute2` (for `ip` commands), `iptables`, kernel with `squashfs` + `loop` + `overlayfs` + `veth` + `bridge` modules
 
-### Environment notes
-- Development was done in an LXC container (Ubuntu). LXC blocks loop devices by default, preventing squashfs mount testing.
-- Full flow tested in a **VM** (Ubuntu 24.04.3 LTS, aarch64, kernel 6.8.0-90-generic) — squashfs + loop built into kernel, all scripts work end-to-end.
-- Required packages installed on VM: `crun` (1.14.1), `skopeo` (1.13.3), `umoci` (0.4.7), `jq` (1.7), `squashfs-tools` (mksquashfs).

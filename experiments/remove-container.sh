@@ -51,6 +51,35 @@ if mountpoint -q "$MERGED_DIR" 2>/dev/null; then
     sudo umount "$MERGED_DIR"
 fi
 
+# Clean up network namespace and allocation (if container had NAT network)
+CONTAINER_META="$CONTAINER_DIR/tcr-container.json"
+NETWORK_META="$SCRIPT_DIR/data/global/tcr-network.json"
+
+if [[ -f "$CONTAINER_META" ]] && jq -e '.network' "$CONTAINER_META" &>/dev/null; then
+    NETNS_NAME=$(jq -r '.network.netns' "$CONTAINER_META")
+    VETH_HOST=$(jq -r '.network.vethHost' "$CONTAINER_META")
+
+    # Delete host-side veth (may already be gone if netns was deleted)
+    if ip link show "$VETH_HOST" &>/dev/null; then
+        echo "==> Deleting veth $VETH_HOST"
+        ip link del "$VETH_HOST" 2>/dev/null || true
+    fi
+
+    # Delete the named network namespace (also removes container-side veth)
+    if ip netns list | grep -qw "$NETNS_NAME"; then
+        echo "==> Deleting network namespace $NETNS_NAME"
+        ip netns del "$NETNS_NAME"
+    fi
+
+    # Remove IP allocation from network metadata
+    if [[ -f "$NETWORK_META" ]]; then
+        echo "==> Removing IP allocation"
+        jq --arg id "$CONTAINER_ID" 'del(.allocations[$id])' \
+            "$NETWORK_META" > "$NETWORK_META.tmp" \
+            && mv "$NETWORK_META.tmp" "$NETWORK_META"
+    fi
+fi
+
 # Remove the container directory
 echo "==> Removing $CONTAINER_DIR"
 sudo rm -rf "$CONTAINER_DIR"
