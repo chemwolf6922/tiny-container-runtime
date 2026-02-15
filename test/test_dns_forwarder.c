@@ -48,6 +48,13 @@ int main(int argc, char const *argv[])
     app.forwarder = dns_forwarder_new(app.tev, listen_addr, listen_port);
     CHECK(app.forwarder != NULL, "Failed to create DNS forwarder");
 
+    /* add fixed test lookups */
+    rc = dns_forwarder_add_lookup(app.forwarder, "tcr-test.local", "10.88.0.10");
+    CHECK(rc == 0, "Failed to add lookup for tcr-test.local");
+
+    rc = dns_forwarder_add_lookup(app.forwarder, "tcr-web.local", "10.88.0.20");
+    CHECK(rc == 0, "Failed to add lookup for tcr-web.local");
+
     app.sig_event_fd = eventfd(0, EFD_NONBLOCK);
     CHECK(app.sig_event_fd != -1, "Failed to create eventfd for signal handling");
 

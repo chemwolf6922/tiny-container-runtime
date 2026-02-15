@@ -73,6 +73,8 @@ static int extract_qname(const uint8_t *buf, ssize_t len, char *name_out, int na
 static int get_qtype(const uint8_t *buf, ssize_t len, int qname_end_offset);
 static ssize_t build_a_response(const uint8_t *query, ssize_t query_len,
                                 uint32_t ip_net_order, uint8_t *resp, int resp_size);
+static ssize_t build_nodata_response(const uint8_t *query, ssize_t query_len,
+                                     uint8_t *resp, int resp_size);
 static void send_to_upstream(dns_forwarder_t *fwd, pending_query_t *pq);
 static void pending_query_free(pending_query_t *pq);
 static void free_pending_cb(void *value, void *ctx);
@@ -245,6 +247,40 @@ static ssize_t build_a_response(const uint8_t *query, ssize_t query_len,
     return total;
 }
 
+/**
+ * Build a minimal DNS NODATA response (RCODE=0, ANCOUNT=0).
+ * Used for local domains when the query type is not A.
+ * Returns response length, or -1 on error.
+ */
+static ssize_t build_nodata_response(const uint8_t *query, ssize_t query_len,
+                                     uint8_t *resp, int resp_size)
+{
+    /* Find the end of the question section */
+    char discard[DNS_MAX_NAME + 1];
+    int qname_end = extract_qname(query, query_len, discard, sizeof(discard));
+    if (qname_end < 0) return -1;
+
+    int question_end = qname_end + 4; /* QTYPE(2) + QCLASS(2) */
+    if (question_end > query_len) return -1;
+    if (question_end > resp_size) return -1;
+
+    /* Copy header + question from query */
+    memcpy(resp, query, question_end);
+
+    /* Patch the header */
+    dns_header_t hdr;
+    memcpy(&hdr, query, sizeof(hdr));
+    hdr.flags = htons(ntohs(hdr.flags) | DNS_FLAG_QR | DNS_FLAG_AA | DNS_FLAG_RA);
+    hdr.flags &= htons(~0x000F); /* clear RCODE */
+    hdr.qdcount = htons(1);
+    hdr.ancount = htons(0);
+    hdr.nscount = htons(0);
+    hdr.arcount = htons(0);
+    memcpy(resp, &hdr, sizeof(hdr));
+
+    return question_end;
+}
+
 /* -------------------------------------------------------------------------- */
 /*  inotify handler                                                            */
 /* -------------------------------------------------------------------------- */
@@ -323,7 +359,7 @@ static void send_to_upstream(dns_forwarder_t *fwd, pending_query_t *pq)
         /* all upstreams exhausted — discard query */
         uint16_t key = pq->upstream_txn_id;
         map_remove(fwd->pending_map, &key, sizeof(key));
-        free(pq);
+        pending_query_free(pq);
         return;
     }
 
@@ -331,12 +367,19 @@ static void send_to_upstream(dns_forwarder_t *fwd, pending_query_t *pq)
     pq->query_buf[0] = (pq->upstream_txn_id >> 8) & 0xFF;
     pq->query_buf[1] = pq->upstream_txn_id & 0xFF;
 
+    /* set timeout before sending — if it fails (likely OOM), abandon the query */
+    pq->timeout = tev_set_timeout(fwd->tev, on_query_timeout, pq, UPSTREAM_TIMEOUT_MS);
+    if (!pq->timeout)
+    {
+        uint16_t key = pq->upstream_txn_id;
+        map_remove(fwd->pending_map, &key, sizeof(key));
+        pending_query_free(pq);
+        return;
+    }
+
     sendto(fwd->upstream_fd, pq->query_buf, pq->query_len, 0,
            (struct sockaddr *)&fwd->upstreams[pq->upstream_index],
            sizeof(fwd->upstreams[pq->upstream_index]));
-
-    /* set per-upstream timeout; pq has a back-pointer to fwd, so no wrapper needed */
-    pq->timeout = tev_set_timeout(fwd->tev, on_query_timeout, pq, UPSTREAM_TIMEOUT_MS);
 }
 
 static void on_query_timeout(void *ctx)
@@ -372,14 +415,14 @@ static void on_client_query(void *ctx)
 
     int qtype = get_qtype(buf, n, qname_end);
 
-    /* Check local lookup table for A queries */
-    if (qtype == DNS_TYPE_A)
+    /* Check local lookup table */
+    char *local_ip = map_get(fwd->lookup_map, qname, strlen(qname));
+    if (local_ip)
     {
-        char *ip = map_get(fwd->lookup_map, qname, strlen(qname));
-        if (ip)
+        if (qtype == DNS_TYPE_A)
         {
             struct in_addr addr;
-            if (inet_pton(AF_INET, ip, &addr) == 1)
+            if (inet_pton(AF_INET, local_ip, &addr) == 1)
             {
                 uint8_t resp[DNS_BUF_SIZE];
                 ssize_t resp_len = build_a_response(buf, n, addr.s_addr, resp, sizeof(resp));
@@ -388,9 +431,21 @@ static void on_client_query(void *ctx)
                     sendto(fwd->listen_fd, resp, resp_len, 0,
                            (struct sockaddr *)&client_addr, addrlen);
                 }
-                return;
             }
         }
+        else
+        {
+            /* Non-A query for local domain — return authoritative NODATA
+             * to prevent upstream NXDOMAIN from polluting resolver caches */
+            uint8_t resp[DNS_BUF_SIZE];
+            ssize_t resp_len = build_nodata_response(buf, n, resp, sizeof(resp));
+            if (resp_len > 0)
+            {
+                sendto(fwd->listen_fd, resp, resp_len, 0,
+                       (struct sockaddr *)&client_addr, addrlen);
+            }
+        }
+        return;
     }
 
     /* No local match — forward to upstream */
@@ -413,7 +468,7 @@ static void on_client_query(void *ctx)
     if (replaced == NULL)
     {
         /* map_add failed */
-        free(pq);
+        pending_query_free(pq);
         return;
     }
     if (replaced != pq)
@@ -442,13 +497,6 @@ static void on_upstream_response(void *ctx)
     pending_query_t *pq = map_get(fwd->pending_map, &txn_id, sizeof(uint16_t));
     if (!pq) return; /* unknown txn ID — stale or duplicate response */
 
-    /* cancel the timeout */
-    if (pq->timeout)
-    {
-        tev_clear_timeout(fwd->tev, pq->timeout);
-        pq->timeout = NULL;
-    }
-
     /* restore original transaction ID */
     buf[0] = (pq->original_txn_id >> 8) & 0xFF;
     buf[1] = pq->original_txn_id & 0xFF;
@@ -459,7 +507,7 @@ static void on_upstream_response(void *ctx)
 
     /* clean up */
     map_remove(fwd->pending_map, &txn_id, sizeof(uint16_t));
-    free(pq);
+    pending_query_free(pq);
 }
 
 /* -------------------------------------------------------------------------- */
