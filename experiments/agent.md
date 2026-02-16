@@ -1,12 +1,17 @@
 # Agent Context: tiny-container-runtime experiments
 
+> **⚠ DEPRECATED — This document is for the experimental phase only.**
+> The authoritative design reference is [`/agent.md`](../agent.md) in the project root.
+> This file and the entire `experiments/` directory are historical artifacts and will be removed.
+> Where this document conflicts with the root `agent.md`, the root version is correct.
+
 ## Project Goal
 
 Build a tiny container runtime for resource-limited embedded devices. The workflow is split:
 - **Build machine** (normal PC): pull images, flatten, package into squashfs
 - **Target device** (embedded): mount squashfs, configure container, run with crun
 
-Currently in the **experimental phase** using shell scripts.
+This document covers the **experimental phase** using shell scripts.
 
 ## Architecture & Design Decisions
 
