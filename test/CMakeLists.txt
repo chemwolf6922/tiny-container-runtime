@@ -22,3 +22,16 @@ target_include_directories(test_dns_forwarder PRIVATE
 )
 
 target_link_libraries(test_dns_forwarder tev)
+
+add_executable(test_image_manager
+    test_image_manager.c
+    ../src/image/image_manager.c
+)
+
+target_include_directories(test_image_manager PRIVATE
+    ../src
+    ../src/image
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(test_image_manager tev cjson uuid)

@@ -16,6 +16,7 @@ Only the following components are implemented so far. The rest of the runtime (c
 
 1. **`host_tools/tcr-create-image.sh`** — build-machine tool to pull, unpack, and package OCI images into squashfs. See [docs/create_image.md](docs/create_image.md).
 2. **`src/network/dns_forwarder.{c,h}`** — lightweight event-loop-based UDP DNS forwarder for the NAT gateway. See [docs/dns_forwarder.md](docs/dns_forwarder.md).
+3. **`src/image/image_manager.{c,h}`** — squashfs image lifecycle manager (load, mount, query, persist, remove). See [docs/image_manager.md](docs/image_manager.md).
 
 ---
 
@@ -41,6 +42,20 @@ Detail design: [docs/dns_forwarder.md](docs/dns_forwarder.md)
 
 ---
 
+## Image Manager (`src/image/`)
+
+Manages squashfs container images on the target device: loading, mounting via loop device, querying by digest or name+tag, unmounting, and removal. Persistent across restarts — writes `image-runtime-info.json` per image and rebuilds state on startup.
+
+- Exclusive access via `flock` on `<root>/.images_lock`
+- O(1) lookup by digest or `name:tag` using tev hash maps
+- Loop device management with `LO_FLAGS_AUTOCLEAR`
+- Strict JSON validation, mmap-based file loading
+- Tag collision handling: new image takes the tag, old image keeps running without tag
+
+Detail design: [docs/image_manager.md](docs/image_manager.md)
+
+---
+
 ## Project Layout
 
 ```
@@ -50,6 +65,11 @@ host_tools/
 src/
   tcrd.c                     # target device daemon (C) — not yet implemented
   tcr.c                      # CLI client (C) — not yet implemented
+  common/
+    list.h                   # Linux kernel-style intrusive linked list
+  image/
+    image_manager.c          # squashfs image lifecycle manager
+    image_manager.h
   network/
     dns_forwarder.c          # DNS forwarder for NAT gateway
     dns_forwarder.h
@@ -57,9 +77,12 @@ src/
 docs/
   create_image.md            # tcr-create-image.sh design document
   dns_forwarder.md           # DNS forwarder design document
+  image_manager.md           # image manager design document
 
 test/
   test_dns_forwarder.c       # DNS forwarder unit tests
+  test_image_manager.c       # image manager integration tests
+  run_image_manager_test.sh  # test runner (creates test sqfs, runs under valgrind)
 ```
 
 ### Key constraints
