@@ -17,6 +17,7 @@ Only the following components are implemented so far. The rest of the runtime (c
 1. **`host_tools/tcr-create-image.sh`** — build-machine tool to pull, unpack, and package OCI images into squashfs. See [docs/create_image.md](docs/create_image.md).
 2. **`src/network/dns_forwarder.{c,h}`** — lightweight event-loop-based UDP DNS forwarder for the NAT gateway. See [docs/dns_forwarder.md](docs/dns_forwarder.md).
 3. **`src/image/image_manager.{c,h}`** — squashfs image lifecycle manager (load, mount, query, persist, remove). See [docs/image_manager.md](docs/image_manager.md).
+4. **`src/resource/`** — default seccomp profile embedded into the binary via `ld -r -b binary`. See [docs/seccomp_resource.md](docs/seccomp_resource.md).
 
 ---
 
@@ -73,15 +74,21 @@ src/
   network/
     dns_forwarder.c          # DNS forwarder for NAT gateway
     dns_forwarder.h
+  resource/
+    seccomp.json             # default seccomp profile (compacted)
+    seccomp_json.h           # C header for embedded JSON symbols
+    CMakeLists.txt           # builds libseccomp_resource.a
 
 docs/
   create_image.md            # tcr-create-image.sh design document
   dns_forwarder.md           # DNS forwarder design document
   image_manager.md           # image manager design document
+  seccomp_resource.md        # seccomp embedding design document
 
 test/
   test_dns_forwarder.c       # DNS forwarder unit tests
   test_image_manager.c       # image manager integration tests
+  test_seccomp_resource.c    # seccomp embedding validation test
   run_image_manager_test.sh  # test runner (creates test sqfs, runs under valgrind)
 ```
 

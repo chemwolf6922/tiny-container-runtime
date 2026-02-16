@@ -35,3 +35,15 @@ target_include_directories(test_image_manager PRIVATE
 )
 
 target_link_libraries(test_image_manager tev cjson uuid)
+
+add_subdirectory(../src/resource ${CMAKE_CURRENT_BINARY_DIR}/resource)
+
+add_executable(test_seccomp_resource
+    test_seccomp_resource.c
+)
+
+target_include_directories(test_seccomp_resource PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(test_seccomp_resource seccomp_resource cjson)
