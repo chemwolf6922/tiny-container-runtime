@@ -26,6 +26,7 @@ target_link_libraries(test_dns_forwarder tev)
 add_executable(test_image_manager
     test_image_manager.c
     ../src/image/image_manager.c
+    ../src/common/utils.c
 )
 
 target_include_directories(test_image_manager PRIVATE
@@ -47,3 +48,19 @@ target_include_directories(test_seccomp_resource PRIVATE
 )
 
 target_link_libraries(test_seccomp_resource seccomp_resource cjson)
+
+add_executable(test_crun_config
+    test_crun_config.c
+    ../src/container/crun_config.c
+    ../src/image/image_manager.c
+    ../src/common/utils.c
+)
+
+target_include_directories(test_crun_config PRIVATE
+    ../src
+    ../src/container
+    ../src/image
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(test_crun_config seccomp_resource cjson tev uuid)

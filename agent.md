@@ -18,6 +18,8 @@ Only the following components are implemented so far. The rest of the runtime (c
 2. **`src/network/dns_forwarder.{c,h}`** — lightweight event-loop-based UDP DNS forwarder for the NAT gateway. See [docs/dns_forwarder.md](docs/dns_forwarder.md).
 3. **`src/image/image_manager.{c,h}`** — squashfs image lifecycle manager (load, mount, query, persist, remove). See [docs/image_manager.md](docs/image_manager.md).
 4. **`src/resource/`** — default seccomp profile embedded into the binary via `ld -r -b binary`. See [docs/seccomp_resource.md](docs/seccomp_resource.md).
+5. **`src/container/crun_config.{c,h}`** — OCI runtime config builder/manipulator for crun. Applies security defaults (capabilities, namespaces, seccomp), default mounts, and provides mutation APIs. See [docs/crun_config.md](docs/crun_config.md).
+6. **`src/common/utils.{c,h}`** — shared utility functions (`path_join`, `load_json_file`) used by image_manager and crun_config.
 
 ---
 
@@ -57,6 +59,20 @@ Detail design: [docs/image_manager.md](docs/image_manager.md)
 
 ---
 
+## Container Config (`src/container/`)
+
+Builds and manipulates OCI runtime-spec `config.json` objects for crun. Reads the skeleton config from an image bundle, patches in security defaults, and provides mutation APIs for customization.
+
+- Capabilities: 14 Docker-default caps across all 5 sets
+- Namespaces: pid, ipc, uts, mount, network
+- Seccomp: embedded containers/common profile converted to OCI format at runtime (architecture-filtered, conditional entries stripped)
+- Default mounts: /proc, /dev, /dev/pts, /dev/shm, /dev/mqueue, /sys
+- Config-only — no filesystem or network side effects
+
+Detail design: [docs/crun_config.md](docs/crun_config.md)
+
+---
+
 ## Project Layout
 
 ```
@@ -68,6 +84,11 @@ src/
   tcr.c                      # CLI client (C) — not yet implemented
   common/
     list.h                   # Linux kernel-style intrusive linked list
+    utils.h                  # shared utilities (path_join, load_json_file)
+    utils.c
+  container/
+    crun_config.c            # OCI runtime config builder for crun
+    crun_config.h
   image/
     image_manager.c          # squashfs image lifecycle manager
     image_manager.h
@@ -81,14 +102,17 @@ src/
 
 docs/
   create_image.md            # tcr-create-image.sh design document
+  crun_config.md             # crun_config design document
   dns_forwarder.md           # DNS forwarder design document
   image_manager.md           # image manager design document
   seccomp_resource.md        # seccomp embedding design document
 
 test/
+  test_crun_config.c         # crun_config unit tests (11 tests)
   test_dns_forwarder.c       # DNS forwarder unit tests
   test_image_manager.c       # image manager integration tests
   test_seccomp_resource.c    # seccomp embedding validation test
+  run_test_crun_config.sh    # crun_config test runner (valgrind)
   run_image_manager_test.sh  # test runner (creates test sqfs, runs under valgrind)
 ```
 
