@@ -39,6 +39,8 @@
 #define CONTAINER_ID_BYTES  8   /* 8 random bytes → 16 hex chars */
 #define DEFAULT_STOP_TIMEOUT_MS  10000
 
+#define HOSTS_FILE          "/etc/hosts"
+
 /* meta.json key names (camelCase per JSON convention) */
 #define JKEY_ID                 "id"
 #define JKEY_NAME               "name"
@@ -396,6 +398,126 @@ static int write_container_meta(struct container_s *c)
 }
 
 /* -------------------------------------------------------------------------- */
+/*  /etc/hosts management (host-local DNS resolution for containers)           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Add /etc/hosts entries for a container so the host can reach it by name.
+ * Entry format: <ip> tcr-<id> [tcr-<name>] # tcr:<id>
+ */
+static void add_hosts_entry(const char *id, const char *name, const char *ip)
+{
+    char *tag = NULL, *id_host = NULL, *name_host = NULL;
+    char *new_line = NULL, *content = NULL, *output = NULL;
+
+    if (asprintf(&tag, "# tcr:%s", id) < 0) return;
+    if (asprintf(&id_host, "tcr-%s", id) < 0) { free(tag); return; }
+
+    /* Also add tcr-<name> alias if name differs from id */
+    if (name && strcmp(name, id) != 0)
+    {
+        if (asprintf(&name_host, "tcr-%s", name) < 0)
+            name_host = NULL; /* non-fatal, skip name alias */
+    }
+
+    if (name_host)
+    {
+        if (asprintf(&new_line, "%s %s %s %s\n", ip, id_host, name_host, tag) < 0)
+        { new_line = NULL; goto out; }
+    }
+    else
+    {
+        if (asprintf(&new_line, "%s %s %s\n", ip, id_host, tag) < 0)
+        { new_line = NULL; goto out; }
+    }
+
+    content = read_file_to_string(HOSTS_FILE);
+
+    size_t new_line_len = strlen(new_line);
+    size_t content_len = content ? strlen(content) : 0;
+    output = malloc(content_len + new_line_len + 1);
+    if (!output) goto out;
+
+    /* Copy existing lines, filtering out any stale entry for this container */
+    size_t out_pos = 0;
+    if (content)
+    {
+        char *line = content;
+        while (*line)
+        {
+            char *eol = strchr(line, '\n');
+            size_t len = eol ? (size_t)(eol - line + 1) : strlen(line);
+
+            char *found = strstr(line, tag);
+            bool has_tag = found && (!eol || found < eol);
+            if (!has_tag)
+            {
+                memcpy(output + out_pos, line, len);
+                out_pos += len;
+            }
+
+            line += len;
+        }
+    }
+
+    memcpy(output + out_pos, new_line, new_line_len);
+    out_pos += new_line_len;
+    output[out_pos] = '\0';
+
+    write_string_to_file(HOSTS_FILE, output);
+
+out:
+    free(output);
+    free(new_line);
+    free(name_host);
+    free(id_host);
+    free(tag);
+    free(content);
+}
+
+/**
+ * Remove /etc/hosts entries for a container.
+ * Removes all lines tagged with "# tcr:<id>".
+ */
+static void remove_hosts_entry(const char *id)
+{
+    char *tag = NULL;
+    if (asprintf(&tag, "# tcr:%s", id) < 0) return;
+
+    char *content = read_file_to_string(HOSTS_FILE);
+    if (!content) { free(tag); return; }
+
+    size_t content_len = strlen(content);
+    char *output = malloc(content_len + 1);
+    if (!output) { free(tag); free(content); return; }
+
+    size_t out_pos = 0;
+    char *line = content;
+    while (*line)
+    {
+        char *eol = strchr(line, '\n');
+        size_t len = eol ? (size_t)(eol - line + 1) : strlen(line);
+
+        char *found = strstr(line, tag);
+        bool has_tag = found && (!eol || found < eol);
+        if (!has_tag)
+        {
+            memcpy(output + out_pos, line, len);
+            out_pos += len;
+        }
+
+        line += len;
+    }
+    output[out_pos] = '\0';
+
+    write_string_to_file(HOSTS_FILE, output);
+
+    free(output);
+    free(tag);
+    free(content);
+}
+
+/* -------------------------------------------------------------------------- */
 /*  container_args API                                                         */
 /* -------------------------------------------------------------------------- */
 
@@ -732,13 +854,30 @@ static void cleanup_network(struct container_s *c)
     c->port_forwarders = NULL;
     c->port_forwarder_count = 0;
 
-    /* Remove DNS lookup entry */
-    if (c->dns_domain && c->network)
+    /* Remove DNS lookup entries */
+    if (c->network)
     {
         dns_forwarder fwd = nat_network_get_dns_forwarder(c->network);
         if (fwd)
-            dns_forwarder_remove_lookup(fwd, c->dns_domain);
+        {
+            if (c->dns_domain)
+                dns_forwarder_remove_lookup(fwd, c->dns_domain);
+            /* Also remove name-based DNS entry if different from id-based */
+            if (c->name && strcmp(c->name, c->id) != 0)
+            {
+                char *name_domain = NULL;
+                if (asprintf(&name_domain, "tcr-%s", c->name) >= 0)
+                {
+                    dns_forwarder_remove_lookup(fwd, name_domain);
+                    free(name_domain);
+                }
+            }
+        }
     }
+
+    /* Remove /etc/hosts entry */
+    if (c->id)
+        remove_hosts_entry(c->id);
 
     /* Remove network namespace */
     if (c->netns_name)
@@ -1085,7 +1224,7 @@ static struct container_s *restore_container(
             }
         }
 
-        /* Register DNS entry */
+        /* Register DNS entries */
         dns_forwarder dns = nat_network_get_dns_forwarder(net);
         if (dns && c->has_ip)
         {
@@ -1093,6 +1232,24 @@ static struct container_s *restore_container(
             inet_ntop(AF_INET, &c->allocated_ip, ip_str, sizeof(ip_str));
             if (asprintf(&c->dns_domain, "tcr-%s", c->id) >= 0)
                 dns_forwarder_add_lookup(dns, c->dns_domain, ip_str);
+            /* Also register by container name if different from id */
+            if (c->name && strcmp(c->name, c->id) != 0)
+            {
+                char *name_domain = NULL;
+                if (asprintf(&name_domain, "tcr-%s", c->name) >= 0)
+                {
+                    dns_forwarder_add_lookup(dns, name_domain, ip_str);
+                    free(name_domain);
+                }
+            }
+        }
+
+        /* Add /etc/hosts entry for host-local DNS resolution */
+        if (c->has_ip)
+        {
+            char ip_str[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &c->allocated_ip, ip_str, sizeof(ip_str));
+            add_hosts_entry(c->id, c->name, ip_str);
         }
 
         /* Restore port forwarders */
@@ -1555,7 +1712,7 @@ container container_manager_create_container(
             }
         }
 
-        /* Register DNS lookup entry */
+        /* Register DNS lookup entries */
         {
             dns_forwarder fwd = nat_network_get_dns_forwarder(net);
             if (fwd)
@@ -1564,7 +1721,24 @@ container container_manager_create_container(
                 inet_ntop(AF_INET, &c->allocated_ip, ip_str, sizeof(ip_str));
                 if (asprintf(&c->dns_domain, "tcr-%s", c->id) >= 0)
                     dns_forwarder_add_lookup(fwd, c->dns_domain, ip_str);
+                /* Also register by container name if different from id */
+                if (c->name && strcmp(c->name, c->id) != 0)
+                {
+                    char *name_domain = NULL;
+                    if (asprintf(&name_domain, "tcr-%s", c->name) >= 0)
+                    {
+                        dns_forwarder_add_lookup(fwd, name_domain, ip_str);
+                        free(name_domain);
+                    }
+                }
             }
+        }
+
+        /* Add /etc/hosts entry for host-local DNS resolution */
+        {
+            char ip_str[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &c->allocated_ip, ip_str, sizeof(ip_str));
+            add_hosts_entry(c->id, c->name, ip_str);
         }
 
         /* Port forwarding */

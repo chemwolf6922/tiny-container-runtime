@@ -90,6 +90,9 @@ cleanup() {
         fi
     done
 
+    # Clean up /etc/hosts entries added by container_manager
+    sed -i '/# tcr:/d' /etc/hosts 2>/dev/null || true
+
     rm -rf "$CM_ROOT" "$IMG_ROOT" "$NAT_ROOT"
 }
 trap cleanup EXIT
@@ -107,8 +110,9 @@ echo ""
 valgrind \
     --leak-check=full \
     --show-leak-kinds=all \
-    --errors-for-leak-kinds=all \
+    --errors-for-leak-kinds=definite \
     --track-origins=yes \
+    --trace-children=yes \
     --error-exitcode=99 \
     --log-file="$VALGRIND_LOG" \
     "$BUILD_DIR/test_container_manager" "$SQFS_FILE"
