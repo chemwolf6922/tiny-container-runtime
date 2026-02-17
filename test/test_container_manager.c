@@ -487,6 +487,54 @@ static void test_multiple_containers(void)
     printf("  PASS: test_multiple_containers\n");
 }
 
+static void test_network_ref_count(void)
+{
+    container_manager mgr = container_manager_new(g_tev, g_img_mgr, g_nat_mgr, CM_ROOT);
+    CHECK(mgr != NULL, "new");
+
+    /* Create a network — no containers attached yet */
+    nat_network net = nat_network_manager_get_network(g_nat_mgr, "refcount_net");
+    CHECK(net != NULL, "create test network");
+
+    /* No containers at all — ref count should be 0 */
+    CHECK(container_manager_get_network_ref_count(mgr, net) == 0,
+          "ref count should be 0 with no containers");
+
+    /* Create containers without networking — should not affect network ref count */
+    container containers[2];
+    for (int i = 0; i < 2; i++)
+    {
+        container_args args = container_args_new();
+        CHECK(args != NULL, "args_new");
+        CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+        CHECK(container_args_set_readonly(args, true) == 0, "set ro");
+        char name[32];
+        snprintf(name, sizeof(name), "netref-%d", i);
+        CHECK(container_args_set_name(args, name) == 0, "set name");
+
+        containers[i] = container_manager_create_container(mgr, args);
+        CHECK(containers[i] != NULL, "create_container");
+        container_args_free(args);
+    }
+
+    /* Non-networked containers should not count */
+    CHECK(container_manager_get_network_ref_count(mgr, net) == 0,
+          "ref count should still be 0 for non-networked containers");
+
+    /* NULL safety */
+    CHECK(container_manager_get_network_ref_count(NULL, net) == 0,
+          "ref_count(NULL mgr) should be 0");
+    CHECK(container_manager_get_network_ref_count(mgr, NULL) == 0,
+          "ref_count(NULL net) should be 0");
+
+    /* Cleanup */
+    CHECK(container_remove(containers[0]) == 0, "remove 0");
+    CHECK(container_remove(containers[1]) == 0, "remove 1");
+    nat_network_remove_network(g_nat_mgr, "refcount_net");
+    container_manager_free(mgr);
+    printf("  PASS: test_network_ref_count\n");
+}
+
 static void test_get_crun_args_interactive(void)
 {
     container_manager mgr = container_manager_new(g_tev, g_img_mgr, g_nat_mgr, CM_ROOT);
@@ -706,6 +754,7 @@ static void test_null_safety(void)
     CHECK(container_manager_find_container(NULL, "x") == NULL, "find(NULL)");
     CHECK(container_manager_foreach_container_safe(NULL, NULL, NULL) == -1, "foreach(NULL)");
     CHECK(container_manager_get_image_ref_count(NULL, NULL) == 0, "ref_count(NULL)");
+    CHECK(container_manager_get_network_ref_count(NULL, NULL) == 0, "net_ref_count(NULL)");
 
     container_free_crun_args(NULL, 0);
 
@@ -1081,6 +1130,8 @@ int main(int argc, char **argv)
     test_stop_not_running();
     test_detached_container_lifecycle();
     test_manager_free_kills_detached();
+
+    test_network_ref_count();
 
     /* --- restart persistence tests --- */
     test_meta_json_written();

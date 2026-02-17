@@ -42,3 +42,15 @@ nat_network nat_network_manager_get_network(
  * @param name The name of the NAT network to remove. If NULL, will use the default name.
  */
 void nat_network_remove_network(nat_network_manager manager, const char* name);
+
+typedef void (*nat_network_manager_foreach_fn)(nat_network net, void* user_data);
+
+/**
+ * @brief Iterate over all NAT networks in the manager and call the given function for each network.
+ * 
+ * @param manager The NAT network manager to iterate over.
+ * @param fn The function to call for each NAT network.
+ * @param user_data User data to pass to the function.
+ * @return int 0 on success, -1 if failed.
+ */
+int nat_network_manager_foreach_safe(nat_network_manager manager, nat_network_manager_foreach_fn fn, void* user_data);

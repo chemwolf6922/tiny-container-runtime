@@ -351,6 +351,76 @@ static void test_subnet_slot_reuse(void)
     printf("OK\n");
 }
 
+static int foreach_count;
+static nat_network foreach_last_net;
+
+static void foreach_counter(nat_network net, void *user_data)
+{
+    (void)user_data;
+    foreach_count++;
+    foreach_last_net = net;
+}
+
+static void test_foreach_safe_empty(void)
+{
+    printf("  test_foreach_safe_empty... ");
+
+    nat_network_manager mgr = nat_network_manager_new(g_tev, test_root);
+    CHECK(mgr != NULL, "manager creation");
+
+    foreach_count = 0;
+    int rc = nat_network_manager_foreach_safe(mgr, foreach_counter, NULL);
+    CHECK(rc == 0, "foreach on empty manager should succeed");
+    CHECK(foreach_count == 0, "should visit 0 networks");
+
+    nat_network_manager_free(mgr);
+    printf("OK\n");
+}
+
+static void test_foreach_safe_multiple(void)
+{
+    printf("  test_foreach_safe_multiple... ");
+
+    nat_network_manager mgr = nat_network_manager_new(g_tev, test_root);
+    CHECK(mgr != NULL, "manager creation");
+
+    nat_network net1 = nat_network_manager_get_network(mgr, "foreach_a");
+    nat_network net2 = nat_network_manager_get_network(mgr, "foreach_b");
+    nat_network net3 = nat_network_manager_get_network(mgr, "foreach_c");
+    CHECK(net1 != NULL && net2 != NULL && net3 != NULL, "network creation");
+
+    foreach_count = 0;
+    int rc = nat_network_manager_foreach_safe(mgr, foreach_counter, NULL);
+    CHECK(rc == 0, "foreach should succeed");
+    CHECK(foreach_count == 3, "should visit 3 networks");
+
+    /* remove one and verify count drops */
+    nat_network_remove_network(mgr, "foreach_b");
+    foreach_count = 0;
+    rc = nat_network_manager_foreach_safe(mgr, foreach_counter, NULL);
+    CHECK(rc == 0, "foreach after remove should succeed");
+    CHECK(foreach_count == 2, "should visit 2 networks after removal");
+
+    nat_network_manager_free(mgr);
+    printf("OK\n");
+}
+
+static void test_foreach_safe_null(void)
+{
+    printf("  test_foreach_safe_null... ");
+
+    CHECK(nat_network_manager_foreach_safe(NULL, foreach_counter, NULL) == -1,
+          "foreach on NULL manager should fail");
+
+    nat_network_manager mgr = nat_network_manager_new(g_tev, test_root);
+    CHECK(mgr != NULL, "manager creation");
+    CHECK(nat_network_manager_foreach_safe(mgr, NULL, NULL) == -1,
+          "foreach with NULL callback should fail");
+
+    nat_network_manager_free(mgr);
+    printf("OK\n");
+}
+
 static void test_null_manager_ops(void)
 {
     printf("  test_null_manager_ops... ");
@@ -394,9 +464,12 @@ int main(int argc, char *argv[])
     test_remove_nonexistent();
     test_remove_default();
     test_allocate_ip_through_manager();
+    test_foreach_safe_empty();
+    test_foreach_safe_multiple();
+    test_foreach_safe_null();
+    test_null_manager_ops();
     test_create_namespace_through_manager();
     test_subnet_slot_reuse();
-    test_null_manager_ops();
 
     printf("─────────────────────────────────────────\n");
     printf("All tests passed.\n");

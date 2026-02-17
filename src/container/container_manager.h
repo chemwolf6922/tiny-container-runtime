@@ -49,6 +49,15 @@ void container_manager_free(container_manager manager);
  */
 int container_manager_get_image_ref_count(container_manager manager, image img);
 
+/**
+ * @brief Get the reference count of a NAT network in the container manager.
+ * 
+ * @param manager The container manager to query.
+ * @param net The NAT network to query the reference count for.
+ * @return int The reference count of the network.
+ */
+int container_manager_get_network_ref_count(container_manager manager, nat_network net);
+
 typedef struct container_args_s* container_args;
 
 /**

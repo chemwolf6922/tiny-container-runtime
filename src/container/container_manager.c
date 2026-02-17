@@ -1300,6 +1300,21 @@ int container_manager_get_image_ref_count(container_manager manager, image img)
     return count;
 }
 
+int container_manager_get_network_ref_count(container_manager manager, nat_network net)
+{
+    if (!manager || !net) return 0;
+    struct container_manager_s *mgr = manager;
+
+    int count = 0;
+    struct list_head *pos;
+    list_for_each(pos, &mgr->containers)
+    {
+        struct container_s *c = list_entry(pos, struct container_s, list);
+        if (c->network == net) count++;
+    }
+    return count;
+}
+
 /* -------------------------------------------------------------------------- */
 /*  container_manager_create_container                                         */
 /* -------------------------------------------------------------------------- */

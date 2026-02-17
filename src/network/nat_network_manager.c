@@ -219,3 +219,23 @@ void nat_network_remove_network(nat_network_manager manager, const char *name)
 
     fprintf(stderr, "nat_network_manager: removed network '%s'\n", key);
 }
+
+int nat_network_manager_foreach_safe(nat_network_manager manager,
+                                     nat_network_manager_foreach_fn fn,
+                                     void *user_data)
+{
+    if (!manager || !fn) return -1;
+    struct nat_network_manager_s *mgr = manager;
+
+    size_t len = 0;
+    void **values = map_values(mgr->networks, &len);
+    if (!values) return (len == 0) ? 0 : -1;
+
+    for (size_t i = 0; i < len; i++)
+    {
+        fn((nat_network)values[i], user_data);
+    }
+
+    free(values);
+    return 0;
+}
