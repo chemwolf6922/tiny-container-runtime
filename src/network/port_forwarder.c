@@ -68,11 +68,6 @@ static uint64_t find_last_rule_handle(struct nft_ctx *nft __attribute__((unused)
                                       const char *table,
                                       const char *chain, const char *match)
 {
-    /* List chain with handles */
-    char *cmd;
-    if (asprintf(&cmd, "list chain inet %s %s", table, chain) < 0)
-        return 0;
-
     /* We need a fresh context to capture output cleanly */
     struct nft_ctx *qnft = nft_ctx_new(NFT_CTX_DEFAULT);
     if (!qnft) return 0;
@@ -80,9 +75,8 @@ static uint64_t find_last_rule_handle(struct nft_ctx *nft __attribute__((unused)
     nft_ctx_buffer_error(qnft);
     nft_ctx_output_set_flags(qnft, NFT_CTX_OUTPUT_HANDLE);
 
-    int rc = nft_run_cmd_from_buffer(qnft, cmd);
-    free(cmd);
-    if (rc < 0) {
+    /* List chain with handles */
+    if (nft_cmd(qnft, "list chain inet %s %s", table, chain) < 0) {
         nft_ctx_free(qnft);
         return 0;
     }
@@ -248,17 +242,10 @@ static void delete_rules_by_comment(const char *table, const char *chain,
     nft_ctx_buffer_error(nft);
     nft_ctx_output_set_flags(nft, NFT_CTX_OUTPUT_HANDLE);
 
-    char *cmd;
-    if (asprintf(&cmd, "list chain inet %s %s", table, chain) < 0) {
+    if (nft_cmd(nft, "list chain inet %s %s", table, chain) < 0) {
         nft_ctx_free(nft);
         return;
     }
-    if (nft_run_cmd_from_buffer(nft, cmd) < 0) {
-        free(cmd);
-        nft_ctx_free(nft);
-        return;
-    }
-    free(cmd);
 
     const char *output = nft_ctx_get_output_buffer(nft);
     if (!output) {
