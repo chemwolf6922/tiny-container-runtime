@@ -116,6 +116,21 @@ test/
   run_image_manager_test.sh  # test runner (creates test sqfs, runs under valgrind)
 ```
 
+### Coding rules
+
+1. **No arbitrary magic-number limits on dynamic data.**
+   Never use a fixed-size stack array (e.g. `uint64_t buf[128]`) to collect
+   items whose count has no hard upper bound. Use `malloc`/`realloc` instead.
+   A fixed buffer is acceptable **only** when its size is derived from a
+   proven cap (e.g. `INET_ADDRSTRLEN`, `PATH_MAX`, `IFNAMSIZ`,
+   `MAX_RULE_HANDLES` = exactly 4 protocol×direction combinations).
+
+2. **No fixed `snprintf` buffers for unbounded content.**
+   When formatting strings that include user-supplied or variable-length
+   data (table names, comments, group IDs, etc.), use `asprintf` instead of
+   `snprintf` into a stack buffer. Fixed buffers are fine only when every
+   field has a proven maximum length.
+
 ### Key constraints
 
 1. **`umoci unpack` needs root** — preserves file ownership (uid/gid) via `lchown`.

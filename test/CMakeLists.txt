@@ -72,6 +72,7 @@ pkg_check_modules(LIBNL_ROUTE3 REQUIRED libnl-route-3.0)
 add_executable(test_nat_network
     test_nat_network.c
     ../src/network/nat_network.c
+    ../src/network/nft_helper.c
     ../src/common/bitmap.c
 )
 
@@ -89,3 +90,17 @@ target_link_libraries(test_nat_network
     nftables
     tev
 )
+
+add_executable(test_port_forwarder
+    test_port_forwarder.c
+    ../src/network/port_forwarder.c
+    ../src/network/nft_helper.c
+)
+
+target_include_directories(test_port_forwarder PRIVATE
+    ../src
+    ../src/network
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(test_port_forwarder nftables)

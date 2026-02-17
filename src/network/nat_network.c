@@ -15,6 +15,7 @@
 #include <netlink/route/route.h>
 #include <nftables/libnftables.h>
 
+#include "nft_helper.h"
 #include "common/bitmap.h"
 
 #include <tev/map.h>
@@ -25,7 +26,6 @@
 #include <limits.h>
 #include <linux/if.h>
 #include <sched.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -285,27 +285,6 @@ static int bridge_create(struct nl_sock *sk, const char *name,
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
 /**
- * Run an nft command string via libnftables (no subprocess).
- * Returns 0 on success, -1 on failure.
- */
-static int nft_cmd(struct nft_ctx *nft, const char *fmt, ...)
-    __attribute__((format(printf, 2, 3)));
-
-static int nft_cmd(struct nft_ctx *nft, const char *fmt, ...)
-{
-    char buf[512];
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, ap);
-    va_end(ap);
-
-    int rc = nft_run_cmd_from_buffer(nft, buf);
-    if (rc < 0)
-        fprintf(stderr, "nat_network: nft command failed: %s\n", buf);
-    return rc < 0 ? -1 : 0;
-}
-
-/**
  * Set up the nftables table, chains, and rules for NAT masquerade and
  * forwarding.
  *
@@ -328,11 +307,7 @@ static int nft_setup(const char *table, const char *bridge,
     int ret = -1;
 
     /* Delete existing table (idempotent recreation, ignore errors) */
-    {
-        char cmd[256];
-        snprintf(cmd, sizeof(cmd), "delete table inet %s", table);
-        nft_run_cmd_from_buffer(nft, cmd); /* ignore errors */
-    }
+    nft_cmd(nft, "delete table inet %s", table); /* ignore errors */
 
     if (nft_cmd(nft, "add table inet %s", table) < 0)
         goto out;
@@ -386,9 +361,7 @@ static void nft_teardown(const char *table)
     nft_ctx_buffer_output(nft);
     nft_ctx_buffer_error(nft);
 
-    char cmd[256];
-    snprintf(cmd, sizeof(cmd), "delete table inet %s", table);
-    nft_run_cmd_from_buffer(nft, cmd); /* ignore errors */
+    nft_cmd(nft, "delete table inet %s", table); /* ignore errors */
 
     nft_ctx_free(nft);
 }
