@@ -45,6 +45,8 @@
 /*  Data structures                                                           */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
+#define DNS_PORT 53
+
 struct nat_network_s
 {
     char *name;            /* network name, also bridge name and nft table name */
@@ -57,6 +59,8 @@ struct nat_network_s
     bitmap_t bitmap;
 
     map_handle_t namespaces; /* map: ns_name -> (void*)1 sentinel */
+
+    dns_forwarder dns;     /* DNS forwarder on gateway:53 */
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
@@ -638,9 +642,9 @@ static void ns_untrack(nat_network network, const char *name)
 /*  Public API                                                                */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
-nat_network nat_network_new(const char *name, const char *subnet)
+nat_network nat_network_new(tev_handle_t tev, const char *name, const char *subnet)
 {
-    if (!name || !subnet) return NULL;
+    if (!tev || !name || !subnet) return NULL;
 
     /* ── Parse subnet ── */
     char addr_str[INET_ADDRSTRLEN];
@@ -710,10 +714,24 @@ nat_network nat_network_new(const char *name, const char *subnet)
     if (nft_setup(name, name, subnet) < 0)
         goto err_teardown;
 
+    /* ── Create DNS forwarder on gateway:53 ── */
+    {
+        char gw_str[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &gateway, gw_str, sizeof(gw_str));
+        net->dns = dns_forwarder_new(tev, gw_str, DNS_PORT);
+        if (!net->dns)
+        {
+            fprintf(stderr, "nat_network: failed to create DNS forwarder on %s:%d\n",
+                    gw_str, DNS_PORT);
+            goto err_teardown;
+        }
+    }
+
     return net;
 
 err_teardown:
     {
+        dns_forwarder_free(net->dns);
         struct nl_sock *cleanup_sk = open_rtnl_socket();
         if (cleanup_sk) {
             link_delete_by_name(cleanup_sk, name);
@@ -765,10 +783,23 @@ void nat_network_free(nat_network network)
     /* Delete nftables table */
     nft_teardown(network->name);
 
+    dns_forwarder_free(network->dns);
     map_delete(network->namespaces, NULL, NULL);
     bitmap_free(network->bitmap);
     free(network->name);
     free(network);
+}
+
+const char *nat_network_get_name(nat_network network)
+{
+    if (!network) return NULL;
+    return network->name;
+}
+
+dns_forwarder nat_network_get_dns_forwarder(nat_network network)
+{
+    if (!network) return NULL;
+    return network->dns;
 }
 
 int nat_network_get_gateway(nat_network network, struct in_addr *out)

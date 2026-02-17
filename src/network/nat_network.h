@@ -1,5 +1,7 @@
 #pragma once
 
+#include "dns_forwarder.h"
+
 #include <netinet/in.h>
 
 typedef struct nat_network_s* nat_network;
@@ -7,11 +9,12 @@ typedef struct nat_network_s* nat_network;
 /**
  * @brief [Re]create a NAT network.
  * 
+ * @param tev The tev handle (for the DNS forwarder event loop).
  * @param name The name of the NAT network and the nftables table name.
  * @param subnet The subnet of the NAT network. For example: 10.0.0.0/24
  * @return nat_network , or NULL if an error occurred.
  */
-nat_network nat_network_new(const char* name, const char* subnet);
+nat_network nat_network_new(tev_handle_t tev, const char* name, const char* subnet);
 
 /**
  * @brief Free the nat_network object. Release all resources associated with the NAT network.
@@ -75,3 +78,24 @@ int nat_network_create_network_namespace(
  * @return int 0 on success, or -1 if an error occurred.
  */
 int nat_network_remove_network_namespace(nat_network network, const char* namespace_name);
+
+/**
+ * @brief Get the name of the NAT network.
+ * 
+ * @param network The NAT network to query.
+ * @return const char* The name of the NAT network. Owned by the network, do not free.
+ */
+const char* nat_network_get_name(nat_network network);
+
+/**
+ * @brief Get the DNS forwarder associated with this NAT network.
+ * 
+ * Each NAT network has a built-in DNS forwarder that listens on the
+ * gateway address, port 53. Use this handle to add or remove DNS
+ * lookup entries.
+ * 
+ * @param network The NAT network to query.
+ * @return dns_forwarder The DNS forwarder. Owned by the network, do not free.
+ *         NULL if the network is NULL.
+ */
+dns_forwarder nat_network_get_dns_forwarder(nat_network network);

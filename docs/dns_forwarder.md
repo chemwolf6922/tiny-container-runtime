@@ -2,11 +2,13 @@
 
 ## Purpose
 
-A lightweight UDP DNS forwarder that runs on the NAT gateway (`10.88.0.1:53`) to handle container DNS. It:
+A lightweight UDP DNS forwarder that handles container DNS. It:
 - Resolves container names (e.g. `tcr-*`) to container IPs via a runtime lookup table (inter-container discovery)
 - Forwards all other queries transparently to the host's upstream DNS resolvers
 
-This replaces the current `resolv.conf` generation hack in `add-nat-network.sh` (which tries to detect upstream DNS behind systemd-resolved) with a single reliable `nameserver 10.88.0.1` entry for all containers.
+**Integration**: Each NAT network (`nat_network`) creates its own DNS forwarder instance automatically, listening on the gateway address (e.g. `10.88.0.1:53`). The container manager registers DNS entries (`tcr-<id>` → container IP) when containers join a network. Containers get the gateway as their nameserver via a generated `resolv.conf`.
+
+This replaces the current `resolv.conf` generation hack in `add-nat-network.sh` (which tries to detect upstream DNS behind systemd-resolved) with a single reliable `nameserver <gateway>` entry for all containers.
 
 ## Architecture
 

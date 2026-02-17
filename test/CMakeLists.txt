@@ -72,6 +72,7 @@ pkg_check_modules(LIBNL_ROUTE3 REQUIRED libnl-route-3.0)
 add_executable(test_nat_network
     test_nat_network.c
     ../src/network/nat_network.c
+    ../src/network/dns_forwarder.c
     ../src/network/nft_helper.c
     ../src/common/bitmap.c
 )
@@ -91,6 +92,30 @@ target_link_libraries(test_nat_network
     tev
 )
 
+add_executable(test_nat_network_manager
+    test_nat_network_manager.c
+    ../src/network/nat_network_manager.c
+    ../src/network/nat_network.c
+    ../src/network/dns_forwarder.c
+    ../src/network/nft_helper.c
+    ../src/common/bitmap.c
+)
+
+target_include_directories(test_nat_network_manager PRIVATE
+    ../src
+    ../src/network
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${LIBNL3_INCLUDE_DIRS}
+    ${LIBNL_ROUTE3_INCLUDE_DIRS}
+)
+
+target_link_libraries(test_nat_network_manager
+    ${LIBNL3_LIBRARIES}
+    ${LIBNL_ROUTE3_LIBRARIES}
+    nftables
+    tev
+)
+
 add_executable(test_port_forwarder
     test_port_forwarder.c
     ../src/network/port_forwarder.c
@@ -104,3 +129,34 @@ target_include_directories(test_port_forwarder PRIVATE
 )
 
 target_link_libraries(test_port_forwarder nftables)
+
+add_executable(test_container_manager
+    test_container_manager.c
+    ../src/container/container_manager.c
+    ../src/container/crun_config.c
+    ../src/image/image_manager.c
+    ../src/network/dns_forwarder.c
+    ../src/network/nat_network_manager.c
+    ../src/network/nat_network.c
+    ../src/network/nft_helper.c
+    ../src/network/port_forwarder.c
+    ../src/common/bitmap.c
+    ../src/common/utils.c
+)
+
+target_include_directories(test_container_manager PRIVATE
+    ../src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${LIBNL3_INCLUDE_DIRS}
+    ${LIBNL_ROUTE3_INCLUDE_DIRS}
+)
+
+target_link_libraries(test_container_manager
+    seccomp_resource
+    cjson
+    tev
+    uuid
+    ${LIBNL3_LIBRARIES}
+    ${LIBNL_ROUTE3_LIBRARIES}
+    nftables
+)
