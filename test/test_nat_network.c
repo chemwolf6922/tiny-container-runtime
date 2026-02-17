@@ -4,8 +4,8 @@
  *
  * Must be run as root (bridge/netns/nftables require privileges).
  *
- * Usage: sudo ./test_nat_network [lockfile_dir]
- *   lockfile_dir defaults to /tmp/tcr_test_nat_XXXXXX
+ * Usage: sudo ./test_nat_network
+ *   test dir defaults to /tmp/tcr_test_nat_XXXXXX
  */
 #define _GNU_SOURCE
 #include "nat_network.h"
@@ -55,31 +55,10 @@ static void test_new_and_free(void)
 {
     printf("  test_new_and_free... ");
 
-    nat_network net = nat_network_new("tcr_test1", "10.99.0.0/24", test_root);
+    nat_network net = nat_network_new("tcr_test1", "10.99.0.0/24");
     CHECK(net != NULL, "nat_network_new should succeed");
 
     nat_network_free(net);
-    printf("OK\n");
-}
-
-static void test_lock_exclusive(void)
-{
-    printf("  test_lock_exclusive... ");
-
-    nat_network net1 = nat_network_new("tcr_test2", "10.99.1.0/24", test_root);
-    CHECK(net1 != NULL, "first network should succeed");
-
-    /* Second instance with same name should fail (lock held) */
-    nat_network net2 = nat_network_new("tcr_test2", "10.99.1.0/24", test_root);
-    CHECK(net2 == NULL, "second network with same name should fail");
-
-    nat_network_free(net1);
-
-    /* After freeing, should be able to create again */
-    nat_network net3 = nat_network_new("tcr_test2", "10.99.1.0/24", test_root);
-    CHECK(net3 != NULL, "network after free should succeed");
-    nat_network_free(net3);
-
     printf("OK\n");
 }
 
@@ -87,7 +66,7 @@ static void test_gateway(void)
 {
     printf("  test_gateway... ");
 
-    nat_network net = nat_network_new("tcr_test3", "10.99.2.0/24", test_root);
+    nat_network net = nat_network_new("tcr_test3", "10.99.2.0/24");
     CHECK(net != NULL, "network creation");
 
     struct in_addr gw;
@@ -107,7 +86,7 @@ static void test_allocate_ip(void)
 {
     printf("  test_allocate_ip... ");
 
-    nat_network net = nat_network_new("tcr_test4", "10.99.3.0/24", test_root);
+    nat_network net = nat_network_new("tcr_test4", "10.99.3.0/24");
     CHECK(net != NULL, "network creation");
 
     struct in_addr ip1, ip2;
@@ -135,7 +114,7 @@ static void test_reserve_ip(void)
 {
     printf("  test_reserve_ip... ");
 
-    nat_network net = nat_network_new("tcr_test5", "10.99.4.0/24", test_root);
+    nat_network net = nat_network_new("tcr_test5", "10.99.4.0/24");
     CHECK(net != NULL, "network creation");
 
     struct in_addr reserved;
@@ -175,7 +154,7 @@ static void test_release_ip(void)
 {
     printf("  test_release_ip... ");
 
-    nat_network net = nat_network_new("tcr_test6", "10.99.5.0/24", test_root);
+    nat_network net = nat_network_new("tcr_test6", "10.99.5.0/24");
     CHECK(net != NULL, "network creation");
 
     struct in_addr ip1;
@@ -206,16 +185,16 @@ static void test_invalid_subnet(void)
 
     nat_network net;
 
-    net = nat_network_new("tcr_test_bad", "10.99.0.0/31", test_root);
+    net = nat_network_new("tcr_test_bad", "10.99.0.0/31");
     CHECK(net == NULL, "prefix /31 should fail");
 
-    net = nat_network_new("tcr_test_bad", "10.99.0.0/1", test_root);
+    net = nat_network_new("tcr_test_bad", "10.99.0.0/1");
     CHECK(net == NULL, "prefix /1 should fail");
 
-    net = nat_network_new("tcr_test_bad", "10.99.0.1/24", test_root);
+    net = nat_network_new("tcr_test_bad", "10.99.0.1/24");
     CHECK(net == NULL, "non-zero host bits should fail");
 
-    net = nat_network_new("tcr_test_bad", "garbage", test_root);
+    net = nat_network_new("tcr_test_bad", "garbage");
     CHECK(net == NULL, "garbage subnet should fail");
 
     printf("OK\n");
@@ -225,7 +204,7 @@ static void test_reserve_out_of_range(void)
 {
     printf("  test_reserve_out_of_range... ");
 
-    nat_network net = nat_network_new("tcr_test7", "10.99.6.0/24", test_root);
+    nat_network net = nat_network_new("tcr_test7", "10.99.6.0/24");
     CHECK(net != NULL, "network creation");
 
     struct in_addr bad;
@@ -259,7 +238,7 @@ static void test_create_namespace(void)
 {
     printf("  test_create_namespace... ");
 
-    nat_network net = nat_network_new("tcr_test8", "10.99.7.0/24", test_root);
+    nat_network net = nat_network_new("tcr_test8", "10.99.7.0/24");
     CHECK(net != NULL, "network creation");
 
     struct in_addr ip;
@@ -289,7 +268,7 @@ static void test_create_namespace_idempotent(void)
 {
     printf("  test_create_namespace_idempotent... ");
 
-    nat_network net = nat_network_new("tcr_test9", "10.99.8.0/24", test_root);
+    nat_network net = nat_network_new("tcr_test9", "10.99.8.0/24");
     CHECK(net != NULL, "network creation");
 
     struct in_addr ip;
@@ -311,7 +290,7 @@ static void test_remove_namespace(void)
 {
     printf("  test_remove_namespace... ");
 
-    nat_network net = nat_network_new("tcr_tst10", "10.99.9.0/24", test_root);
+    nat_network net = nat_network_new("tcr_tst10", "10.99.9.0/24");
     CHECK(net != NULL, "network creation");
 
     struct in_addr ip;
@@ -340,7 +319,7 @@ static void test_multiple_namespaces(void)
 {
     printf("  test_multiple_namespaces... ");
 
-    nat_network net = nat_network_new("tcr_tst11", "10.99.10.0/24", test_root);
+    nat_network net = nat_network_new("tcr_tst11", "10.99.10.0/24");
     CHECK(net != NULL, "network creation");
 
     struct in_addr ips[3];
@@ -378,7 +357,7 @@ static void test_exhaust_ips(void)
 {
     printf("  test_exhaust_ips... ");
 
-    nat_network net = nat_network_new("tcr_tst12", "10.99.11.0/24", test_root);
+    nat_network net = nat_network_new("tcr_tst12", "10.99.11.0/24");
     CHECK(net != NULL, "network creation");
 
     struct in_addr ip;
@@ -403,11 +382,11 @@ static void test_recreate_network(void)
     printf("  test_recreate_network... ");
 
     /* Create, free, re-create — should work (always-recreate semantics) */
-    nat_network net1 = nat_network_new("tcr_tst13", "10.99.12.0/24", test_root);
+    nat_network net1 = nat_network_new("tcr_tst13", "10.99.12.0/24");
     CHECK(net1 != NULL, "first creation");
     nat_network_free(net1);
 
-    nat_network net2 = nat_network_new("tcr_tst13", "10.99.12.0/24", test_root);
+    nat_network net2 = nat_network_new("tcr_tst13", "10.99.12.0/24");
     CHECK(net2 != NULL, "re-creation after free");
 
     /* Gateway should be consistent */
@@ -427,7 +406,7 @@ static void test_non_24_prefix(void)
 {
     printf("  test_non_24_prefix... ");
 
-    nat_network net = nat_network_new("tcr_tst14", "10.100.0.0/16", test_root);
+    nat_network net = nat_network_new("tcr_tst14", "10.100.0.0/16");
     CHECK(net != NULL, "/16 subnet should succeed");
 
     struct in_addr gw;
@@ -481,7 +460,6 @@ int main(int argc, char **argv)
     printf("─────────────────────────────────────────\n");
 
     test_new_and_free();
-    test_lock_exclusive();
     test_gateway();
     test_allocate_ip();
     test_reserve_ip();

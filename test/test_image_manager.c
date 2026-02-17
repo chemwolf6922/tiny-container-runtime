@@ -58,31 +58,6 @@ static void test_new_and_free(void)
     printf("OK\n");
 }
 
-static void test_lock_exclusive(void)
-{
-    printf("  test_lock_exclusive... ");
-
-    char *root = NULL;
-    asprintf(&root, "%s/mgr_lock", test_root);
-
-    image_manager mgr1 = image_manager_new(root);
-    CHECK(mgr1 != NULL, "first manager should succeed");
-
-    /* second manager on same root should fail */
-    image_manager mgr2 = image_manager_new(root);
-    CHECK(mgr2 == NULL, "second manager on same root should fail");
-
-    image_manager_free(mgr1, true);
-
-    /* after freeing, should be able to create again */
-    image_manager mgr3 = image_manager_new(root);
-    CHECK(mgr3 != NULL, "manager after free should succeed");
-    image_manager_free(mgr3, true);
-
-    free(root);
-    printf("OK\n");
-}
-
 static void test_load_and_query(void)
 {
     printf("  test_load_and_query... ");
@@ -375,7 +350,6 @@ int main(int argc, char *argv[])
     printf("Running image_manager tests:\n");
 
     test_new_and_free();
-    test_lock_exclusive();
     test_load_and_query();
     test_duplicate_digest_rejected();
     test_mount_umount();

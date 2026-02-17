@@ -49,7 +49,6 @@ Detail design: [docs/dns_forwarder.md](docs/dns_forwarder.md)
 
 Manages squashfs container images on the target device: loading, mounting via loop device, querying by digest or name+tag, unmounting, and removal. Persistent across restarts — writes `image-runtime-info.json` per image and rebuilds state on startup.
 
-- Exclusive access via `flock` on `<root>/.images_lock`
 - O(1) lookup by digest or `name:tag` using tev hash maps
 - Loop device management with `LO_FLAGS_AUTOCLEAR`
 - Strict JSON validation, mmap-based file loading
@@ -114,6 +113,36 @@ test/
   test_seccomp_resource.c    # seccomp embedding validation test
   run_test_crun_config.sh    # crun_config test runner (valgrind)
   run_image_manager_test.sh  # test runner (creates test sqfs, runs under valgrind)
+```
+
+### Testing
+
+> **HTTP Proxy**: Before running tests in a new session, ask the user whether
+> an HTTP proxy needs to be configured. Some test scripts pull container
+> images from the internet (e.g. `run_image_manager_test.sh`,
+> `run_test_crun_config.sh`). If the `http_proxy` / `https_proxy`
+> environment variables are set, use `sudo -E` instead of plain `sudo`
+> so the proxy settings are preserved under root.
+
+Tests live in `test/` and are built with CMake:
+
+```bash
+cd test/build && cmake .. && make -j$(nproc)
+```
+
+Tests that require root (mount, netns, nftables) have wrapper scripts:
+
+| Script | What it tests | Needs root | Needs network |
+|--------|--------------|------------|---------------|
+| `run_test_crun_config.sh` | crun_config (+ valgrind) | yes | yes (pulls image on first run) |
+| `run_image_manager_test.sh` | image_manager (+ valgrind) | yes | yes (pulls image on first run) |
+| `run_test_nat_network.sh` | NAT network (+ valgrind) | yes | no |
+| `run_test.sh` | DNS forwarder (+ valgrind) | no | yes (upstream forwarding tests) |
+
+Non-root tests can be run directly:
+
+```bash
+./build/test_seccomp_resource
 ```
 
 ### Coding rules

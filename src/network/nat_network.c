@@ -29,7 +29,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/file.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -40,7 +39,6 @@
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
 #define NETNS_RUN_DIR   "/var/run/netns"
-#define LOCK_PREFIX     ".network_lock_"
 #define IP_RANGE_START  2
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
@@ -57,9 +55,6 @@ struct nat_network_s
     uint32_t host_mask;    /* (1u << host_bits) - 1, host byte order */
 
     bitmap_t bitmap;
-
-    int lock_fd;
-    char *lock_path;
 
     map_handle_t namespaces; /* map: ns_name -> (void*)1 sentinel */
 };
@@ -643,10 +638,9 @@ static void ns_untrack(nat_network network, const char *name)
 /*  Public API                                                                */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
-nat_network nat_network_new(const char *name, const char *subnet,
-                            const char *lockfile_root)
+nat_network nat_network_new(const char *name, const char *subnet)
 {
-    if (!name || !subnet || !lockfile_root) return NULL;
+    if (!name || !subnet) return NULL;
 
     /* ── Parse subnet ── */
     char addr_str[INET_ADDRSTRLEN];
@@ -685,7 +679,6 @@ nat_network nat_network_new(const char *name, const char *subnet,
     net->gateway_nbo = gateway.s_addr;
     net->prefix_len = prefix;
     net->host_mask = host_mask;
-    net->lock_fd = -1;
     net->namespaces = map_create();
     if (!net->namespaces) { free(net->name); free(net); return NULL; }
 
@@ -697,37 +690,15 @@ nat_network nat_network_new(const char *name, const char *subnet,
     bitmap_set(net->bitmap, 1);
     bitmap_set(net->bitmap, (1 << host_bits) - 1);
 
-    /* ── Acquire lock file ── */
-    size_t lock_path_len =
-        strlen(lockfile_root) + 1 + strlen(LOCK_PREFIX) + strlen(name) + 1;
-    net->lock_path = malloc(lock_path_len);
-    if (!net->lock_path) goto err_free;
-    snprintf(net->lock_path, lock_path_len, "%s/%s%s",
-             lockfile_root, LOCK_PREFIX, name);
-
-    net->lock_fd =
-        open(net->lock_path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
-    if (net->lock_fd < 0) {
-        fprintf(stderr, "nat_network: cannot open lock file %s: %s\n",
-                net->lock_path, strerror(errno));
-        goto err_free;
-    }
-    if (flock(net->lock_fd, LOCK_EX | LOCK_NB) < 0) {
-        fprintf(stderr,
-                "nat_network: another instance holds the lock for '%s'\n",
-                name);
-        goto err_close;
-    }
-
     /* ── Create bridge ── */
     struct nl_sock *sk = open_rtnl_socket();
     if (!sk) {
         fprintf(stderr, "nat_network: cannot open netlink socket\n");
-        goto err_close;
+        goto err_free;
     }
     if (bridge_create(sk, name, gateway, prefix) < 0) {
         nl_socket_free(sk);
-        goto err_close;
+        goto err_free;
     }
     nl_socket_free(sk);
 
@@ -750,12 +721,9 @@ err_teardown:
         }
         nft_teardown(name);
     }
-err_close:
-    close(net->lock_fd);
 err_free:
     map_delete(net->namespaces, NULL, NULL);
     bitmap_free(net->bitmap);
-    free(net->lock_path);
     free(net->name);
     free(net);
     return NULL;
@@ -797,13 +765,8 @@ void nat_network_free(nat_network network)
     /* Delete nftables table */
     nft_teardown(network->name);
 
-    /* Release lock */
-    if (network->lock_fd >= 0)
-        close(network->lock_fd);
-
     map_delete(network->namespaces, NULL, NULL);
     bitmap_free(network->bitmap);
-    free(network->lock_path);
     free(network->name);
     free(network);
 }

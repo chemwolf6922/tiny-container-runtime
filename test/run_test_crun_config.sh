@@ -58,7 +58,7 @@ cleanup() {
     # but if the test crashed we need to clean up manually.
     mount | grep "$IMG_ROOT" | awk '{print $3}' | sort -r | while read -r mp; do
         umount "$mp" 2>/dev/null || umount -l "$mp" 2>/dev/null || true
-    done
+    done || true
     rm -rf "$IMG_ROOT"
 }
 trap cleanup EXIT

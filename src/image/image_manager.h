@@ -8,7 +8,6 @@ typedef struct image_manager_s* image_manager;
 
 /**
  * @brief Create a new image manager with the given root path.
- * @warning There can be one live image manager for each root path.
  * @warning DO NOT use nested image managers. That's not useful and asking for trouble.
  * 
  * @param root_path The root path for the image manager.

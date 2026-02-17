@@ -6,14 +6,12 @@ typedef struct nat_network_s* nat_network;
 
 /**
  * @brief [Re]create a NAT network.
- * @note Only one nat_network object can exist system wide for a given name.
  * 
  * @param name The name of the NAT network and the nftables table name.
  * @param subnet The subnet of the NAT network. For example: 10.0.0.0/24
- * @param lockfile_root The root directory for the lockfile.
  * @return nat_network , or NULL if an error occurred.
  */
-nat_network nat_network_new(const char* name, const char* subnet, const char* lockfile_root);
+nat_network nat_network_new(const char* name, const char* subnet);
 
 /**
  * @brief Free the nat_network object. Release all resources associated with the NAT network.

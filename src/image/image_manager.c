@@ -18,7 +18,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/file.h>
 #include <linux/loop.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
@@ -31,7 +30,6 @@
 /*  Constants                                                                  */
 /* -------------------------------------------------------------------------- */
 
-#define LOCK_FILENAME       ".images_lock"
 #define IMAGES_DIRNAME      "images"
 #define MOUNT_DIRNAME       "mnt"
 #define RUNTIME_INFO_FILE   "image-runtime-info.json"
@@ -74,7 +72,6 @@ struct image_manager_s
 {
     char *root_path;
     char *images_dir;       /* <root>/images/ */
-    int lock_fd;
 
     struct list_head images;
     map_handle_t digest_map;    /* digest string -> struct image_s* */
@@ -587,7 +584,6 @@ image_manager image_manager_new(const char *root_path)
     image_manager mgr = calloc(1, sizeof(*mgr));
     if (!mgr) return NULL;
 
-    mgr->lock_fd = -1;
     list_head_init(&mgr->images);
 
     /* resolve to absolute path */
@@ -610,21 +606,6 @@ image_manager image_manager_new(const char *root_path)
     if (mkdir_if_not_exist(mgr->root_path) != 0) goto fail;
     if (mkdir_if_not_exist(mgr->images_dir) != 0) goto fail;
 
-    /* acquire file lock */
-    char *lock_path = path_join(mgr->root_path, LOCK_FILENAME);
-    if (!lock_path) goto fail;
-
-    mgr->lock_fd = open(lock_path, O_CREAT | O_RDWR, 0644);
-    free(lock_path);
-    if (mgr->lock_fd < 0) goto fail;
-
-    if (flock(mgr->lock_fd, LOCK_EX | LOCK_NB) != 0)
-    {
-        fprintf(stderr, "image_manager: another manager holds the lock on %s\n",
-                mgr->root_path);
-        goto fail;
-    }
-
     /* create maps */
     mgr->digest_map = map_create();
     mgr->tag_map = map_create();
@@ -636,7 +617,6 @@ image_manager image_manager_new(const char *root_path)
     return mgr;
 
 fail:
-    if (mgr->lock_fd >= 0) close(mgr->lock_fd);
     if (mgr->digest_map) map_delete(mgr->digest_map, NULL, NULL);
     if (mgr->tag_map) map_delete(mgr->tag_map, NULL, NULL);
     if (mgr->images_dir) free(mgr->images_dir);
@@ -667,12 +647,6 @@ void image_manager_free(image_manager manager, bool umount_all)
 
     map_delete(mgr->digest_map, NULL, NULL);
     map_delete(mgr->tag_map, NULL, NULL);
-
-    if (mgr->lock_fd >= 0)
-    {
-        flock(mgr->lock_fd, LOCK_UN);
-        close(mgr->lock_fd);
-    }
 
     if (mgr->images_dir) free(mgr->images_dir);
     if (mgr->root_path)  free(mgr->root_path);
