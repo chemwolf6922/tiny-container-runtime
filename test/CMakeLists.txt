@@ -64,3 +64,28 @@ target_include_directories(test_crun_config PRIVATE
 )
 
 target_link_libraries(test_crun_config seccomp_resource cjson tev uuid)
+
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBNL3 REQUIRED libnl-3.0)
+pkg_check_modules(LIBNL_ROUTE3 REQUIRED libnl-route-3.0)
+
+add_executable(test_nat_network
+    test_nat_network.c
+    ../src/network/nat_network.c
+    ../src/common/bitmap.c
+)
+
+target_include_directories(test_nat_network PRIVATE
+    ../src
+    ../src/network
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${LIBNL3_INCLUDE_DIRS}
+    ${LIBNL_ROUTE3_INCLUDE_DIRS}
+)
+
+target_link_libraries(test_nat_network
+    ${LIBNL3_LIBRARIES}
+    ${LIBNL_ROUTE3_LIBRARIES}
+    nftables
+    tev
+)
