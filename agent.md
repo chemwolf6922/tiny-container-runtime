@@ -163,6 +163,7 @@ test/
   test_nat_network_manager.c # NAT network manager tests
   test_port_forwarder.c      # port forwarder tests
   test_seccomp_resource.c    # seccomp embedding validation test
+  test_util.h                # shared test macros (CHECK) and helpers (test_get_data_dir)
   run_test_container_manager.sh  # container manager test runner (valgrind)
   run_test_crun_config.sh    # crun_config test runner (valgrind)
   run_test_dns_forwarder.sh  # DNS forwarder test runner (valgrind)
@@ -186,6 +187,10 @@ Tests live in `test/` and are built with CMake:
 ```bash
 cd test/build && cmake .. && make -j$(nproc)
 ```
+
+Test data (temporary roots, image mounts, etc.) is written to `test/data/`
+(created automatically by `test_get_data_dir()` in `test_util.h`).
+This directory is git-ignored.
 
 Tests that require root (mount, netns, nftables) have wrapper scripts:
 

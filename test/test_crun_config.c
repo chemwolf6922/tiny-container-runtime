@@ -323,7 +323,11 @@ int main(int argc, char **argv)
     printf("    image: %s\n", sqfs_path);
 
     /* --- Load and mount the image via image_manager --- */
-    image_manager mgr = image_manager_new("/tmp/tcr-test-crun-config");
+    char data_dir[256];
+    test_get_data_dir(data_dir, sizeof(data_dir), argv[0]);
+    char img_root_path[512];
+    snprintf(img_root_path, sizeof(img_root_path), "%s/tcr-test-crun-config", data_dir);
+    image_manager mgr = image_manager_new(img_root_path);
     CHECK(mgr != NULL, "image_manager_new failed");
 
     image img = image_manager_load(mgr, sqfs_path);

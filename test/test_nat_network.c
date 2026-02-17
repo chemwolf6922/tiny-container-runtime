@@ -5,7 +5,7 @@
  * Must be run as root (bridge/netns/nftables require privileges).
  *
  * Usage: sudo ./test_nat_network
- *   test dir defaults to /tmp/tcr_test_nat_XXXXXX
+ *   test dir defaults to <data_dir>/tcr_test_nat_XXXXXX
  */
 #define _GNU_SOURCE
 #include "nat_network.h"
@@ -26,7 +26,7 @@
 /*  Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
 
-static char test_root[128];
+static char test_root[512];
 static tev_handle_t g_tev;
 
 static int rm_cb(const char *path, const struct stat *st, int flag,
@@ -455,7 +455,9 @@ int main(int argc, char **argv)
         snprintf(test_root, sizeof(test_root), "%s", argv[1]);
         mkdir(test_root, 0755);
     } else {
-        snprintf(test_root, sizeof(test_root), "/tmp/tcr_test_nat_XXXXXX");
+        char data_dir[256];
+        test_get_data_dir(data_dir, sizeof(data_dir), argv[0]);
+        snprintf(test_root, sizeof(test_root), "%s/tcr_test_nat_XXXXXX", data_dir);
         CHECK(mkdtemp(test_root) != NULL, "mkdtemp failed");
     }
 

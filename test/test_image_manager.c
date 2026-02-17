@@ -23,8 +23,8 @@
 /*  Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
 
-/* test_root is always /tmp/tcr_test_image_XXXXXX — well under 128 bytes */
-static char test_root[128];
+/* test_root is always <data_dir>/tcr_test_image_XXXXXX */
+static char test_root[512];
 static const char *sqfs_path;   /* user-provided, not owned */
 
 /** nftw callback for recursive delete. */
@@ -338,8 +338,10 @@ int main(int argc, char *argv[])
     }
     printf("Using test image: %s\n", sqfs_path);
 
-    /* create temp test root — always short, well under 128 bytes */
-    snprintf(test_root, sizeof(test_root), "/tmp/tcr_test_image_XXXXXX");
+    /* create temp test root under test/data */
+    char data_dir[256];
+    test_get_data_dir(data_dir, sizeof(data_dir), argv[0]);
+    snprintf(test_root, sizeof(test_root), "%s/tcr_test_image_XXXXXX", data_dir);
     if (!mkdtemp(test_root))
     {
         perror("mkdtemp");

@@ -3,6 +3,11 @@
 #include "image/image_manager.h"
 #include "network/nat_network_manager.h"
 
+/* CM_ROOT/IMG_ROOT/NAT_ROOT are now runtime-computed char arrays rather than
+   string literals, so GCC cannot statically prove every snprintf fits.
+   snprintf handles truncation safely; silence the warning. */
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+
 #include <cjson/cJSON.h>
 #include <tev/tev.h>
 
@@ -26,9 +31,12 @@ static image_manager g_img_mgr;
 static nat_network_manager g_nat_mgr;
 static const char *g_sqfs_path;
 
-#define CM_ROOT "/tmp/tcr-test-container-manager"
-#define IMG_ROOT "/tmp/tcr-test-cm-images"
-#define NAT_ROOT "/tmp/tcr-test-cm-nat"
+static char _cm_root[512];
+static char _img_root[512];
+static char _nat_root[512];
+#define CM_ROOT _cm_root
+#define IMG_ROOT _img_root
+#define NAT_ROOT _nat_root
 
 /* -------------------------------------------------------------------------- */
 /*  Helper: verify file exists                                                 */
@@ -1429,6 +1437,13 @@ int main(int argc, char **argv)
         return 1;
     }
     g_sqfs_path = argv[1];
+
+    /* Compute data directory from binary location (test/build/../data) */
+    char data_dir[256];
+    test_get_data_dir(data_dir, sizeof(data_dir), argv[0]);
+    snprintf(_cm_root, sizeof(_cm_root), "%s/tcr-test-container-manager", data_dir);
+    snprintf(_img_root, sizeof(_img_root), "%s/tcr-test-cm-images", data_dir);
+    snprintf(_nat_root, sizeof(_nat_root), "%s/tcr-test-cm-nat", data_dir);
 
     printf("=== container_manager tests ===\n");
     printf("    image: %s\n", g_sqfs_path);

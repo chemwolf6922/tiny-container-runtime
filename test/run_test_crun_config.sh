@@ -15,7 +15,9 @@ WORK_DIR="$BUILD_DIR/test_crun_config_work"
 IMAGE_REF="docker.io/library/alpine:latest"
 SQFS_FILE="$WORK_DIR/alpine_latest.sqfs"
 VALGRIND_LOG="$BUILD_DIR/valgrind_crun_config.log"
-IMG_ROOT="/tmp/tcr-test-crun-config"
+DATA_DIR="$SCRIPT_DIR/data"
+mkdir -p "$DATA_DIR"
+IMG_ROOT="$DATA_DIR/tcr-test-crun-config"
 
 # ── Pre-flight checks ───────────────────────────────────────────────────────
 

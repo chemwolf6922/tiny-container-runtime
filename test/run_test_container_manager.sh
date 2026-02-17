@@ -15,9 +15,11 @@ WORK_DIR="$BUILD_DIR/test_container_manager_work"
 IMAGE_REF="docker.io/library/alpine:latest"
 SQFS_FILE="$WORK_DIR/alpine_latest.sqfs"
 VALGRIND_LOG="$BUILD_DIR/valgrind_container_manager.log"
-IMG_ROOT="/tmp/tcr-test-cm-images"
-CM_ROOT="/tmp/tcr-test-container-manager"
-NAT_ROOT="/tmp/tcr-test-cm-nat"
+DATA_DIR="$SCRIPT_DIR/data"
+mkdir -p "$DATA_DIR"
+IMG_ROOT="$DATA_DIR/tcr-test-cm-images"
+CM_ROOT="$DATA_DIR/tcr-test-container-manager"
+NAT_ROOT="$DATA_DIR/tcr-test-cm-nat"
 
 # ── Pre-flight checks ───────────────────────────────────────────────────────
 

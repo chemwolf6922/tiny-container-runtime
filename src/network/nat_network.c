@@ -134,25 +134,46 @@ static int netns_create(const char *name)
      * network.  By forking, the child performs unshare + bind-mount and
      * exits, while the parent stays in the host namespace untouched.
      * This is also safe when the daemon is multi-threaded (tev event
-     * loop), since the parent thread is never affected. */
+     * loop), since the parent thread is never affected.
+     *
+     * A pipe is used to communicate the result back to the parent instead
+     * of relying on the child's exit code, because valgrind may override
+     * the exit code when it detects "leaks" from inherited library
+     * constructors (e.g. libnl). */
+    int pipefd[2];
+    if (pipe(pipefd) < 0) {
+        fprintf(stderr, "nat_network: pipe failed: %s\n", strerror(errno));
+        unlink(path);
+        return -1;
+    }
+
     pid_t pid = fork();
     if (pid < 0) {
         fprintf(stderr, "nat_network: fork failed: %s\n", strerror(errno));
+        close(pipefd[0]);
+        close(pipefd[1]);
         unlink(path);
         return -1;
     }
 
     if (pid == 0) {
-        if (unshare(CLONE_NEWNET) < 0)
-            _exit(1);
-        if (mount("/proc/self/ns/net", path, "none", MS_BIND, NULL) < 0)
-            _exit(1);
+        close(pipefd[0]);
+        char result = 1;
+        if (unshare(CLONE_NEWNET) == 0 &&
+            mount("/proc/self/ns/net", path, "none", MS_BIND, NULL) == 0)
+            result = 0;
+        (void)write(pipefd[1], &result, 1);
+        close(pipefd[1]);
         _exit(0);
     }
 
-    int status;
-    waitpid(pid, &status, 0);
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+    close(pipefd[1]);
+    char result = 1;
+    (void)read(pipefd[0], &result, 1);
+    close(pipefd[0]);
+    waitpid(pid, NULL, 0);
+
+    if (result != 0) {
         fprintf(stderr, "nat_network: failed to create netns '%s'\n", name);
         unlink(path);
         return -1;
@@ -490,22 +511,35 @@ static int configure_netns_internal(const char *netns_name,
     char ns_path[PATH_MAX];
     snprintf(ns_path, sizeof(ns_path), "%s/%s", NETNS_RUN_DIR, netns_name);
 
+    /* A pipe communicates the result back to the parent instead of
+     * relying on the child's exit code (valgrind may override it). */
+    int pipefd[2];
+    if (pipe(pipefd) < 0) {
+        fprintf(stderr, "nat_network: pipe failed: %s\n", strerror(errno));
+        return -1;
+    }
+
     pid_t pid = fork();
     if (pid < 0) {
         fprintf(stderr, "nat_network: fork failed: %s\n", strerror(errno));
+        close(pipefd[0]);
+        close(pipefd[1]);
         return -1;
     }
 
     if (pid == 0) {
         /* ── Child process: configure inside the network namespace ── */
+        close(pipefd[0]);
+        char result = 1; /* assume failure */
+
         int ns_fd = open(ns_path, O_RDONLY | O_CLOEXEC);
-        if (ns_fd < 0) _exit(1);
-        if (setns(ns_fd, CLONE_NEWNET) < 0) { close(ns_fd); _exit(1); }
+        if (ns_fd < 0) goto child_done;
+        if (setns(ns_fd, CLONE_NEWNET) < 0) { close(ns_fd); goto child_done; }
         close(ns_fd);
 
         struct nl_sock *sk = nl_socket_alloc();
-        if (!sk) _exit(1);
-        if (nl_connect(sk, NETLINK_ROUTE) < 0) { nl_socket_free(sk); _exit(1); }
+        if (!sk) goto child_done;
+        if (nl_connect(sk, NETLINK_ROUTE) < 0) { nl_socket_free(sk); goto child_done; }
 
         int err;
         struct rtnl_link *changes;
@@ -513,25 +547,25 @@ static int configure_netns_internal(const char *netns_name,
         /* 1. Rename temp interface → eth0 */
         struct rtnl_link *tmp = NULL;
         err = rtnl_link_get_kernel(sk, 0, temp_name, &tmp);
-        if (err < 0 || !tmp) { nl_socket_free(sk); _exit(1); }
+        if (err < 0 || !tmp) { nl_socket_free(sk); goto child_done; }
 
         changes = rtnl_link_alloc();
-        if (!changes) { rtnl_link_put(tmp); nl_socket_free(sk); _exit(1); }
+        if (!changes) { rtnl_link_put(tmp); nl_socket_free(sk); goto child_done; }
         rtnl_link_set_name(changes, "eth0");
         err = rtnl_link_change(sk, tmp, changes, 0);
         rtnl_link_put(changes);
         rtnl_link_put(tmp);
-        if (err < 0) { nl_socket_free(sk); _exit(1); }
+        if (err < 0) { nl_socket_free(sk); goto child_done; }
 
         /* 2. Look up eth0 */
         struct rtnl_link *eth0 = NULL;
         err = rtnl_link_get_kernel(sk, 0, "eth0", &eth0);
-        if (err < 0 || !eth0) { nl_socket_free(sk); _exit(1); }
+        if (err < 0 || !eth0) { nl_socket_free(sk); goto child_done; }
         int eth0_idx = rtnl_link_get_ifindex(eth0);
 
         /* 3. Assign IP address */
         struct rtnl_addr *raddr = rtnl_addr_alloc();
-        if (!raddr) { rtnl_link_put(eth0); nl_socket_free(sk); _exit(1); }
+        if (!raddr) { rtnl_link_put(eth0); nl_socket_free(sk); goto child_done; }
         rtnl_addr_set_ifindex(raddr, eth0_idx);
 
         struct nl_addr *local = nl_addr_build(AF_INET, &ip, sizeof(ip));
@@ -539,7 +573,7 @@ static int configure_netns_internal(const char *netns_name,
             rtnl_addr_put(raddr);
             rtnl_link_put(eth0);
             nl_socket_free(sk);
-            _exit(1);
+            goto child_done;
         }
         nl_addr_set_prefixlen(local, prefix_len);
         rtnl_addr_set_local(raddr, local);
@@ -547,15 +581,15 @@ static int configure_netns_internal(const char *netns_name,
 
         err = rtnl_addr_add(sk, raddr, 0);
         rtnl_addr_put(raddr);
-        if (err < 0) { rtnl_link_put(eth0); nl_socket_free(sk); _exit(1); }
+        if (err < 0) { rtnl_link_put(eth0); nl_socket_free(sk); goto child_done; }
 
         /* 4. Bring up eth0 */
         changes = rtnl_link_alloc();
-        if (!changes) { rtnl_link_put(eth0); nl_socket_free(sk); _exit(1); }
+        if (!changes) { rtnl_link_put(eth0); nl_socket_free(sk); goto child_done; }
         rtnl_link_set_flags(changes, IFF_UP);
         err = rtnl_link_change(sk, eth0, changes, 0);
         rtnl_link_put(eth0);
-        if (err < 0) { rtnl_link_put(changes); nl_socket_free(sk); _exit(1); }
+        if (err < 0) { rtnl_link_put(changes); nl_socket_free(sk); goto child_done; }
 
         /* 5. Bring up loopback */
         struct rtnl_link *lo = NULL;
@@ -567,7 +601,7 @@ static int configure_netns_internal(const char *netns_name,
 
         /* 6. Add default route via gateway */
         struct rtnl_route *route = rtnl_route_alloc();
-        if (!route) { nl_socket_free(sk); _exit(1); }
+        if (!route) { nl_socket_free(sk); goto child_done; }
 
         rtnl_route_set_family(route, AF_INET);
         rtnl_route_set_table(route, RT_TABLE_MAIN);
@@ -575,20 +609,20 @@ static int configure_netns_internal(const char *netns_name,
 
         struct in_addr any = { .s_addr = INADDR_ANY };
         struct nl_addr *dst = nl_addr_build(AF_INET, &any, sizeof(any));
-        if (!dst) { rtnl_route_put(route); nl_socket_free(sk); _exit(1); }
+        if (!dst) { rtnl_route_put(route); nl_socket_free(sk); goto child_done; }
         nl_addr_set_prefixlen(dst, 0);
         rtnl_route_set_dst(route, dst);
         nl_addr_put(dst);
 
         struct rtnl_nexthop *nh = rtnl_route_nh_alloc();
-        if (!nh) { rtnl_route_put(route); nl_socket_free(sk); _exit(1); }
+        if (!nh) { rtnl_route_put(route); nl_socket_free(sk); goto child_done; }
 
         struct nl_addr *gw = nl_addr_build(AF_INET, &gateway, sizeof(gateway));
         if (!gw) {
             rtnl_route_nh_free(nh);
             rtnl_route_put(route);
             nl_socket_free(sk);
-            _exit(1);
+            goto child_done;
         }
         rtnl_route_nh_set_gateway(nh, gw);
         rtnl_route_nh_set_ifindex(nh, eth0_idx);
@@ -601,13 +635,22 @@ static int configure_netns_internal(const char *netns_name,
         rtnl_route_put(route);
         nl_socket_free(sk);
 
-        _exit(err < 0 ? 1 : 0);
+        result = (err < 0) ? 1 : 0;
+
+child_done:
+        (void)write(pipefd[1], &result, 1);
+        close(pipefd[1]);
+        _exit(0);
     }
 
     /* ── Parent: wait for child ── */
-    int status;
-    waitpid(pid, &status, 0);
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+    close(pipefd[1]);
+    char result = 1;
+    (void)read(pipefd[0], &result, 1);
+    close(pipefd[0]);
+    waitpid(pid, NULL, 0);
+
+    if (result != 0) {
         fprintf(stderr,
                 "nat_network: netns configuration failed for '%s'\n",
                 netns_name);
