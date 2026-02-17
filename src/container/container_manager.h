@@ -317,7 +317,7 @@ bool container_is_detached(container c);
  * @brief Start a detached container. The container should have been created with detached mode enabled.
  * 
  * @param c The container to start.
- * @return int 0 on success, -1 if failed. If restart policy is not never, this will return 0 on failure and retry asynchronously.
+ * @return int 0 on success, -1 if failed.
  */
 int container_start(container c);
 

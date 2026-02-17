@@ -14,6 +14,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <ftw.h>
 #include <limits.h>
 #include <signal.h>
 #include <stdio.h>
@@ -37,6 +38,26 @@
 #define RESOLV_CONF_FILE    "resolv.conf"
 #define CONTAINER_ID_BYTES  8   /* 8 random bytes → 16 hex chars */
 #define DEFAULT_STOP_TIMEOUT_MS  10000
+
+/* meta.json key names (camelCase per JSON convention) */
+#define JKEY_ID                 "id"
+#define JKEY_NAME               "name"
+#define JKEY_DETACHED           "detached"
+#define JKEY_AUTO_REMOVE        "autoRemove"
+#define JKEY_READONLY           "readonly"
+#define JKEY_RESTART_POLICY     "restartPolicy"
+#define JKEY_STOP_TIMEOUT_MS    "stopTimeoutMs"
+#define JKEY_EXPLICITLY_STOPPED "explicitlyStopped"
+#define JKEY_BUNDLE_PATH        "bundlePath"
+#define JKEY_IMAGE_DIGEST       "imageDigest"
+#define JKEY_NAT_NETWORK_NAME   "natNetworkName"
+#define JKEY_NETNS_NAME         "netnsName"
+#define JKEY_ALLOCATED_IP       "allocatedIp"
+#define JKEY_PORT_FORWARDS      "portForwards"
+#define JKEY_HOST_IP            "hostIp"
+#define JKEY_HOST_PORT          "hostPort"
+#define JKEY_CONTAINER_PORT     "containerPort"
+#define JKEY_PROTOCOL           "protocol"
 
 /* -------------------------------------------------------------------------- */
 /*  Data structures                                                            */
@@ -167,6 +188,9 @@ struct container_s
     /* DNS domain registered in dns_forwarder */
     char *dns_domain;
 
+    /* set when container_stop() is called — suppresses UNLESS_STOPPED restart */
+    bool explicitly_stopped;
+
     /* process tracking */
     container_state state;
     pid_t pid;
@@ -223,13 +247,18 @@ static int mkdir_p(const char *path)
     return 0;
 }
 
+static int rmdir_recursive_cb(const char *fpath, const struct stat *sb,
+                              int typeflag, struct FTW *ftwbuf)
+{
+    (void)sb; (void)ftwbuf;
+    if (typeflag == FTW_DP)
+        return rmdir(fpath) == 0 ? 0 : -1;
+    return remove(fpath) == 0 ? 0 : -1;
+}
+
 static int rmdir_recursive(const char *path)
 {
-    char *cmd = NULL;
-    if (asprintf(&cmd, "rm -rf '%s'", path) < 0) return -1;
-    int ret = system(cmd);
-    free(cmd);
-    return ret == 0 ? 0 : -1;
+    return nftw(path, rmdir_recursive_cb, 64, FTW_DEPTH | FTW_PHYS);
 }
 
 /**
@@ -300,39 +329,40 @@ static int write_container_meta(struct container_s *c)
     cJSON *meta = cJSON_CreateObject();
     if (!meta) return -1;
 
-    cJSON_AddStringToObject(meta, "id", c->id);
-    cJSON_AddStringToObject(meta, "name", c->name);
-    cJSON_AddBoolToObject(meta, "detached", c->detached);
-    cJSON_AddBoolToObject(meta, "auto_remove", c->auto_remove);
-    cJSON_AddBoolToObject(meta, "readonly", c->readonly);
-    cJSON_AddNumberToObject(meta, "restart_policy", (double)c->restart_policy);
-    cJSON_AddNumberToObject(meta, "stop_timeout_ms", (double)c->stop_timeout_ms);
-    cJSON_AddStringToObject(meta, "bundle_path", c->bundle_path);
+    cJSON_AddStringToObject(meta, JKEY_ID, c->id);
+    cJSON_AddStringToObject(meta, JKEY_NAME, c->name);
+    cJSON_AddBoolToObject(meta, JKEY_DETACHED, c->detached);
+    cJSON_AddBoolToObject(meta, JKEY_AUTO_REMOVE, c->auto_remove);
+    cJSON_AddBoolToObject(meta, JKEY_READONLY, c->readonly);
+    cJSON_AddNumberToObject(meta, JKEY_RESTART_POLICY, (double)c->restart_policy);
+    cJSON_AddNumberToObject(meta, JKEY_STOP_TIMEOUT_MS, (double)c->stop_timeout_ms);
+    cJSON_AddBoolToObject(meta, JKEY_EXPLICITLY_STOPPED, c->explicitly_stopped);
+    cJSON_AddStringToObject(meta, JKEY_BUNDLE_PATH, c->bundle_path);
 
     /* Image digest for restoration */
     if (c->img)
     {
         const char *digest = image_get_digest(c->img);
         if (digest)
-            cJSON_AddStringToObject(meta, "image_digest", digest);
+            cJSON_AddStringToObject(meta, JKEY_IMAGE_DIGEST, digest);
     }
 
     /* Network fields */
     if (c->nat_network_name)
-        cJSON_AddStringToObject(meta, "nat_network_name", c->nat_network_name);
+        cJSON_AddStringToObject(meta, JKEY_NAT_NETWORK_NAME, c->nat_network_name);
     if (c->netns_name)
-        cJSON_AddStringToObject(meta, "netns_name", c->netns_name);
+        cJSON_AddStringToObject(meta, JKEY_NETNS_NAME, c->netns_name);
     if (c->has_ip)
     {
         char ip_str[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &c->allocated_ip, ip_str, sizeof(ip_str));
-        cJSON_AddStringToObject(meta, "allocated_ip", ip_str);
+        cJSON_AddStringToObject(meta, JKEY_ALLOCATED_IP, ip_str);
     }
 
     /* Port forwarding entries */
     if (c->port_forward_spec_count > 0)
     {
-        cJSON *pf_arr = cJSON_AddArrayToObject(meta, "port_forwards");
+        cJSON *pf_arr = cJSON_AddArrayToObject(meta, JKEY_PORT_FORWARDS);
         if (pf_arr)
         {
             for (size_t i = 0; i < c->port_forward_spec_count; i++)
@@ -343,10 +373,10 @@ static int write_container_meta(struct container_s *c)
 
                 char hip[INET_ADDRSTRLEN];
                 inet_ntop(AF_INET, &pfe->host_ip, hip, sizeof(hip));
-                cJSON_AddStringToObject(pf, "host_ip", hip);
-                cJSON_AddNumberToObject(pf, "host_port", pfe->host_port);
-                cJSON_AddNumberToObject(pf, "container_port", pfe->container_port);
-                cJSON_AddNumberToObject(pf, "protocol", pfe->protocol);
+                cJSON_AddStringToObject(pf, JKEY_HOST_IP, hip);
+                cJSON_AddNumberToObject(pf, JKEY_HOST_PORT, pfe->host_port);
+                cJSON_AddNumberToObject(pf, JKEY_CONTAINER_PORT, pfe->container_port);
+                cJSON_AddNumberToObject(pf, JKEY_PROTOCOL, pfe->protocol);
                 cJSON_AddItemToArray(pf_arr, pf);
             }
         }
@@ -816,8 +846,11 @@ static void on_process_exit(void *ctx)
     umount_overlay(c);
 
     /* Handle restart policy (only for detached containers) */
-    if (c->detached && c->restart_policy != CONTAINER_RESTART_POLICY_NEVER)
+    if (c->detached && c->restart_policy != CONTAINER_RESTART_POLICY_NEVER &&
+        !(c->explicitly_stopped &&
+          c->restart_policy == CONTAINER_RESTART_POLICY_UNLESS_STOPPED))
     {
+        c->explicitly_stopped = false;
         /* re-start the container */
         fprintf(stderr, "container_manager: restarting container '%s' per restart policy\n",
                 c->id);
@@ -877,8 +910,8 @@ static struct container_s *restore_container(
     if (!meta) return NULL;
 
     /* Check if this container should be restored */
-    cJSON *j_detached = cJSON_GetObjectItemCaseSensitive(meta, "detached");
-    cJSON *j_policy   = cJSON_GetObjectItemCaseSensitive(meta, "restart_policy");
+    cJSON *j_detached = cJSON_GetObjectItemCaseSensitive(meta, JKEY_DETACHED);
+    cJSON *j_policy   = cJSON_GetObjectItemCaseSensitive(meta, JKEY_RESTART_POLICY);
 
     if (!cJSON_IsBool(j_detached) || !cJSON_IsTrue(j_detached) ||
         !cJSON_IsNumber(j_policy) ||
@@ -888,18 +921,27 @@ static struct container_s *restore_container(
         return NULL;
     }
 
+    /* UNLESS_STOPPED: do not restore if the user explicitly stopped it */
+    cJSON *j_stopped = cJSON_GetObjectItemCaseSensitive(meta, JKEY_EXPLICITLY_STOPPED);
+    if ((int)j_policy->valuedouble == CONTAINER_RESTART_POLICY_UNLESS_STOPPED &&
+        cJSON_IsBool(j_stopped) && cJSON_IsTrue(j_stopped))
+    {
+        cJSON_Delete(meta);
+        return NULL;
+    }
+
     /* Extract fields */
-    cJSON *j_id         = cJSON_GetObjectItemCaseSensitive(meta, "id");
-    cJSON *j_name       = cJSON_GetObjectItemCaseSensitive(meta, "name");
-    cJSON *j_auto_rm    = cJSON_GetObjectItemCaseSensitive(meta, "auto_remove");
-    cJSON *j_readonly   = cJSON_GetObjectItemCaseSensitive(meta, "readonly");
-    cJSON *j_timeout    = cJSON_GetObjectItemCaseSensitive(meta, "stop_timeout_ms");
-    cJSON *j_bundle     = cJSON_GetObjectItemCaseSensitive(meta, "bundle_path");
-    cJSON *j_digest     = cJSON_GetObjectItemCaseSensitive(meta, "image_digest");
-    cJSON *j_net_name   = cJSON_GetObjectItemCaseSensitive(meta, "nat_network_name");
-    cJSON *j_netns      = cJSON_GetObjectItemCaseSensitive(meta, "netns_name");
-    cJSON *j_alloc_ip   = cJSON_GetObjectItemCaseSensitive(meta, "allocated_ip");
-    cJSON *j_pf_arr     = cJSON_GetObjectItemCaseSensitive(meta, "port_forwards");
+    cJSON *j_id         = cJSON_GetObjectItemCaseSensitive(meta, JKEY_ID);
+    cJSON *j_name       = cJSON_GetObjectItemCaseSensitive(meta, JKEY_NAME);
+    cJSON *j_auto_rm    = cJSON_GetObjectItemCaseSensitive(meta, JKEY_AUTO_REMOVE);
+    cJSON *j_readonly   = cJSON_GetObjectItemCaseSensitive(meta, JKEY_READONLY);
+    cJSON *j_timeout    = cJSON_GetObjectItemCaseSensitive(meta, JKEY_STOP_TIMEOUT_MS);
+    cJSON *j_bundle     = cJSON_GetObjectItemCaseSensitive(meta, JKEY_BUNDLE_PATH);
+    cJSON *j_digest     = cJSON_GetObjectItemCaseSensitive(meta, JKEY_IMAGE_DIGEST);
+    cJSON *j_net_name   = cJSON_GetObjectItemCaseSensitive(meta, JKEY_NAT_NETWORK_NAME);
+    cJSON *j_netns      = cJSON_GetObjectItemCaseSensitive(meta, JKEY_NETNS_NAME);
+    cJSON *j_alloc_ip   = cJSON_GetObjectItemCaseSensitive(meta, JKEY_ALLOCATED_IP);
+    cJSON *j_pf_arr     = cJSON_GetObjectItemCaseSensitive(meta, JKEY_PORT_FORWARDS);
 
     if (!cJSON_IsString(j_id) || !cJSON_IsString(j_name) || !cJSON_IsString(j_digest))
     {
@@ -1068,10 +1110,10 @@ static struct container_s *restore_container(
                 for (int i = 0; i < pf_count; i++)
                 {
                     cJSON *pf_item = cJSON_GetArrayItem(j_pf_arr, i);
-                    cJSON *j_hip = cJSON_GetObjectItemCaseSensitive(pf_item, "host_ip");
-                    cJSON *j_hp  = cJSON_GetObjectItemCaseSensitive(pf_item, "host_port");
-                    cJSON *j_cp  = cJSON_GetObjectItemCaseSensitive(pf_item, "container_port");
-                    cJSON *j_pr  = cJSON_GetObjectItemCaseSensitive(pf_item, "protocol");
+                    cJSON *j_hip = cJSON_GetObjectItemCaseSensitive(pf_item, JKEY_HOST_IP);
+                    cJSON *j_hp  = cJSON_GetObjectItemCaseSensitive(pf_item, JKEY_HOST_PORT);
+                    cJSON *j_cp  = cJSON_GetObjectItemCaseSensitive(pf_item, JKEY_CONTAINER_PORT);
+                    cJSON *j_pr  = cJSON_GetObjectItemCaseSensitive(pf_item, JKEY_PROTOCOL);
 
                     if (!cJSON_IsString(j_hip) || !cJSON_IsNumber(j_hp) ||
                         !cJSON_IsNumber(j_cp) || !cJSON_IsNumber(j_pr))
@@ -1744,11 +1786,24 @@ int container_stop(container c, bool immediately)
     if (c->state != CONTAINER_STATE_RUNNING || c->pid <= 0)
         return 0; /* nothing to stop */
 
+    /* Mark as explicitly stopped so UNLESS_STOPPED won't restart */
+    c->explicitly_stopped = true;
+
+    /* Persist the flag so a daemon crash won't resurrect this container */
+    write_container_meta(c);
+
     if (immediately)
     {
         /* Suppress restart so on_process_exit won't re-launch */
         c->restart_policy = CONTAINER_RESTART_POLICY_NEVER;
         kill(c->pid, SIGKILL);
+
+        /* Synchronously wait for the child */
+        cleanup_process_monitor(c);
+        waitpid(c->pid, NULL, 0);
+        c->pid = -1;
+        c->state = CONTAINER_STATE_STOPPED;
+        umount_overlay(c);
     }
     else
     {

@@ -774,20 +774,20 @@ static void test_meta_json_written(void)
     cJSON *j_ro = cJSON_GetObjectItemCaseSensitive(meta, "readonly");
     CHECK(cJSON_IsTrue(j_ro), "readonly = true");
 
-    cJSON *j_pol = cJSON_GetObjectItemCaseSensitive(meta, "restart_policy");
-    CHECK(cJSON_IsNumber(j_pol), "restart_policy is number");
+    cJSON *j_pol = cJSON_GetObjectItemCaseSensitive(meta, "restartPolicy");
+    CHECK(cJSON_IsNumber(j_pol), "restartPolicy is number");
     CHECK((int)j_pol->valuedouble == CONTAINER_RESTART_POLICY_ALWAYS,
-          "restart_policy = ALWAYS");
+          "restartPolicy = ALWAYS");
 
-    cJSON *j_timeout = cJSON_GetObjectItemCaseSensitive(meta, "stop_timeout_ms");
-    CHECK(cJSON_IsNumber(j_timeout), "stop_timeout_ms is number");
-    CHECK((int)j_timeout->valuedouble == 7000, "stop_timeout_ms = 7000");
+    cJSON *j_timeout = cJSON_GetObjectItemCaseSensitive(meta, "stopTimeoutMs");
+    CHECK(cJSON_IsNumber(j_timeout), "stopTimeoutMs is number");
+    CHECK((int)j_timeout->valuedouble == 7000, "stopTimeoutMs = 7000");
 
-    cJSON *j_digest = cJSON_GetObjectItemCaseSensitive(meta, "image_digest");
-    CHECK(cJSON_IsString(j_digest), "image_digest is string");
+    cJSON *j_digest = cJSON_GetObjectItemCaseSensitive(meta, "imageDigest");
+    CHECK(cJSON_IsString(j_digest), "imageDigest is string");
 
-    cJSON *j_bundle = cJSON_GetObjectItemCaseSensitive(meta, "bundle_path");
-    CHECK(cJSON_IsString(j_bundle), "bundle_path is string");
+    cJSON *j_bundle = cJSON_GetObjectItemCaseSensitive(meta, "bundlePath");
+    CHECK(cJSON_IsString(j_bundle), "bundlePath is string");
 
     cJSON_Delete(meta);
 
@@ -913,6 +913,120 @@ static void test_restart_on_manager_recreate(void)
     printf("  PASS: test_restart_on_manager_recreate\n");
 }
 
+static void test_unless_stopped_not_restored_after_stop(void)
+{
+    /* Create a detached container with UNLESS_STOPPED, start it,
+     * explicitly stop it, free the manager, recreate it,
+     * and verify the container is NOT restored. */
+
+    container_manager mgr = container_manager_new(g_tev, g_img_mgr, g_nat_mgr, CM_ROOT);
+    CHECK(mgr != NULL, "new");
+
+    container_args args = container_args_new();
+    CHECK(args != NULL, "args_new");
+    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+    CHECK(container_args_set_readonly(args, true) == 0, "set readonly");
+    CHECK(container_args_set_detached(args, true) == 0, "set detached");
+    CHECK(container_args_set_name(args, "unless-stop-test") == 0, "set name");
+    CHECK(container_args_set_restart_policy(args, CONTAINER_RESTART_POLICY_UNLESS_STOPPED) == 0,
+          "set restart unless_stopped");
+    const char *cmd[] = { "/bin/sleep", "60" };
+    CHECK(container_args_set_command(args, 2, cmd) == 0, "set command");
+
+    container c = container_manager_create_container(mgr, args);
+    CHECK(c != NULL, "create_container");
+    container_args_free(args);
+
+    const char *id = container_get_id(c);
+    char id_copy[64];
+    snprintf(id_copy, sizeof(id_copy), "%s", id);
+
+    /* Start the container */
+    CHECK(container_start(c) == 0, "start");
+    CHECK(container_is_running(c), "should be running");
+
+    /* Explicitly stop — this should mark explicitly_stopped in meta.json */
+    CHECK(container_stop(c, true) == 0, "stop");
+
+    /* Free the manager */
+    container_manager_free(mgr);
+
+    /* meta.json should still exist on disk */
+    char meta_path[512];
+    snprintf(meta_path, sizeof(meta_path), "%s/containers/%s/meta.json", CM_ROOT, id_copy);
+    CHECK(file_exists(meta_path), "meta.json should exist on disk");
+
+    /* Recreate manager — UNLESS_STOPPED + explicitly_stopped should NOT be restored */
+    mgr = container_manager_new(g_tev, g_img_mgr, g_nat_mgr, CM_ROOT);
+    CHECK(mgr != NULL, "new2");
+
+    container found = container_manager_find_container(mgr, id_copy);
+    CHECK(found == NULL, "explicitly stopped UNLESS_STOPPED should not be restored");
+
+    /* Clean up leftover on disk */
+    char rm_cmd[512];
+    snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf %s/containers/%s", CM_ROOT, id_copy);
+    (void)system(rm_cmd);
+
+    container_manager_free(mgr);
+    printf("  PASS: test_unless_stopped_not_restored_after_stop\n");
+}
+
+static void test_always_restored_after_stop(void)
+{
+    /* Create a detached container with ALWAYS, start it,
+     * explicitly stop it, free the manager, recreate it,
+     * and verify the container IS restored (ALWAYS overrides explicit stop). */
+
+    container_manager mgr = container_manager_new(g_tev, g_img_mgr, g_nat_mgr, CM_ROOT);
+    CHECK(mgr != NULL, "new");
+
+    container_args args = container_args_new();
+    CHECK(args != NULL, "args_new");
+    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+    CHECK(container_args_set_readonly(args, true) == 0, "set readonly");
+    CHECK(container_args_set_detached(args, true) == 0, "set detached");
+    CHECK(container_args_set_name(args, "always-stop-test") == 0, "set name");
+    CHECK(container_args_set_restart_policy(args, CONTAINER_RESTART_POLICY_ALWAYS) == 0,
+          "set restart always");
+    const char *cmd[] = { "/bin/sleep", "60" };
+    CHECK(container_args_set_command(args, 2, cmd) == 0, "set command");
+
+    container c = container_manager_create_container(mgr, args);
+    CHECK(c != NULL, "create_container");
+    container_args_free(args);
+
+    const char *id = container_get_id(c);
+    char id_copy[64];
+    snprintf(id_copy, sizeof(id_copy), "%s", id);
+
+    /* Start the container */
+    CHECK(container_start(c) == 0, "start");
+    CHECK(container_is_running(c), "should be running");
+
+    /* Explicitly stop — for ALWAYS, this should NOT prevent restore on daemon restart */
+    CHECK(container_stop(c, true) == 0, "stop");
+
+    /* Free the manager */
+    container_manager_free(mgr);
+
+    /* Recreate manager — ALWAYS should be restored regardless of explicit stop */
+    mgr = container_manager_new(g_tev, g_img_mgr, g_nat_mgr, CM_ROOT);
+    CHECK(mgr != NULL, "new2");
+
+    container restored = container_manager_find_container(mgr, id_copy);
+    CHECK(restored != NULL, "ALWAYS container should be restored even after explicit stop");
+    CHECK(container_is_running(restored), "restored should be running");
+
+    /* Clean up */
+    CHECK(container_stop(restored, true) == 0, "stop restored");
+    usleep(100000);
+    CHECK(container_remove(restored) == 0, "remove restored");
+
+    container_manager_free(mgr);
+    printf("  PASS: test_always_restored_after_stop\n");
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Main                                                                       */
 /* -------------------------------------------------------------------------- */
@@ -972,6 +1086,8 @@ int main(int argc, char **argv)
     test_meta_json_written();
     test_meta_json_not_restartable_ignored();
     test_restart_on_manager_recreate();
+    test_unless_stopped_not_restored_after_stop();
+    test_always_restored_after_stop();
 
     /* --- Cleanup --- */
     nat_network_manager_free(g_nat_mgr);

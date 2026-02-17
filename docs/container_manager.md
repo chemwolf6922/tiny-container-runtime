@@ -273,7 +273,7 @@ Tests are in `test/test_container_manager.c`, run via `test/run_test_container_m
 
 **Requirements**: root (for overlay mount, network namespace, nftables), a test squashfs image (auto-created by the test script).
 
-**Test cases** (18 total):
+**Test cases**:
 
 | Test | What it verifies |
 |---|---|
@@ -298,5 +298,7 @@ Tests are in `test/test_container_manager.c`, run via `test/run_test_container_m
 | `test_meta_json_written` | meta.json written with correct fields on create |
 | `test_meta_json_not_restartable_ignored` | Non-restartable containers not restored on restart |
 | `test_restart_on_manager_recreate` | Restartable container restored and started on new manager |
+| `test_unless_stopped_not_restored_after_stop` | UNLESS_STOPPED + explicit stop not restored on restart |
+| `test_always_restored_after_stop` | ALWAYS policy still restored after explicit stop |
 
 All tests run under valgrind (60,139 allocs, 60,139 frees, 0 leaks, 0 errors).
