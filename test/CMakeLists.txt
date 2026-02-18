@@ -160,3 +160,16 @@ target_link_libraries(test_container_manager
     ${LIBNL_ROUTE3_LIBRARIES}
     nftables
 )
+
+add_executable(test_rpc
+    test_rpc.c
+    ../src/rpc/rpc_server.c
+    ../src/rpc/rpc_client.c
+)
+
+target_include_directories(test_rpc PRIVATE
+    ../src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(test_rpc tev cjson pthread)
