@@ -1,0 +1,37 @@
+#!/bin/sh
+# BusyBox init script for tcrd
+# Install to /etc/init.d/tcrd and symlink into /etc/rc.d/ or /etc/runlevels/
+
+DAEMON=/usr/bin/tcrd
+PIDFILE=/var/run/tcrd.lock
+NAME=tcrd
+
+case "$1" in
+    start)
+        printf "Starting %s: " "$NAME"
+        start-stop-daemon -S -b -m -p "$PIDFILE" -x "$DAEMON"
+        echo "OK"
+        ;;
+    stop)
+        printf "Stopping %s: " "$NAME"
+        start-stop-daemon -K -p "$PIDFILE"
+        echo "OK"
+        ;;
+    restart)
+        "$0" stop
+        sleep 1
+        "$0" start
+        ;;
+    status)
+        if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+            echo "$NAME is running (pid $(cat "$PIDFILE"))"
+        else
+            echo "$NAME is not running"
+            exit 1
+        fi
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart|status}"
+        exit 1
+        ;;
+esac

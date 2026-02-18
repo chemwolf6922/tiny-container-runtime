@@ -2109,6 +2109,11 @@ bool container_is_detached(container c)
     return c && c->detached;
 }
 
+image container_get_image(container c)
+{
+    return c ? c->img : NULL;
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Internal cleanup                                                           */
 /* -------------------------------------------------------------------------- */

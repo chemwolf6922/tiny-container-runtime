@@ -12,7 +12,7 @@ Build a tiny container runtime for resource-limited embedded devices. The workfl
 
 ## Current Implementation Status
 
-The following components are implemented. The higher-level daemon (`tcrd`) is not yet implemented.
+All components are implemented.
 
 1. **`host_tools/tcr-create-image.sh`** — build-machine tool to pull, unpack, and package OCI images into squashfs. See [docs/create_image.md](docs/create_image.md).
 2. **`src/network/dns_forwarder.{c,h}`** — lightweight event-loop-based UDP DNS forwarder. Each NAT network creates its own instance on the gateway address. See [docs/dns_forwarder.md](docs/dns_forwarder.md).
@@ -25,7 +25,24 @@ The following components are implemented. The higher-level daemon (`tcrd`) is no
 9. **`src/common/utils.{c,h}`** — shared utility functions (`path_join`, `load_json_file`, `rmdir_recursive`) used across modules.
 10. **`src/rpc/rpc_client.{c,h}` / `rpc_server.{c,h}`** — minimal JSON RPC over `SOCK_SEQPACKET` Unix domain sockets. Async, tev-integrated, supports timeouts and cancellation.
 11. **`src/tcr.c`** — thin CLI client that forwards argv to the daemon via JSON RPC. No business logic. See [docs/tcr_client.md](docs/tcr_client.md).
-12. **`src/app/common.h`** — shared definitions between client and daemon (socket path).
+12. **`src/tcrd.c`** — the daemon. Receives RPC requests, dispatches to handlers, manages all subsystems (image, container, network). Single-instance via lock file. See [docs/tcr_commands.md](docs/tcr_commands.md).
+13. **`src/app/common.h`** — shared definitions between client and daemon (socket path).
+14. **`src/app/daemon-constants.h`** — daemon-only constants (error codes, default paths, lock file path).
+
+---
+
+## tcrd Daemon (`src/tcrd.c`)
+
+The central daemon that ties all subsystems together. Single-process, event-driven (tev), single-instance (flock-based lock file at `/var/run/tcrd.lock`).
+
+- **RPC dispatch** — receives method+args via JSON RPC, dispatches to handler functions
+- **Signal handling** — SIGINT/SIGTERM via signalfd, integrated into tev event loop for graceful shutdown
+- **Supported commands**: `run`, `ps`, `stop`, `kill`, `rm`, `image load/ls/rm`, `network ls/rm`, `help`
+- **Default networking** — containers get a NAT network (`tcr_default`) unless `--no-network` or `--network <name>` is specified
+- **Lock file** — `/var/run/tcrd.lock` with `flock(LOCK_EX|LOCK_NB)` ensures only one instance runs; PID written for diagnostics
+- **Error codes** — defined in `daemon-constants.h` (1–7), matching [docs/tcr_commands.md](docs/tcr_commands.md)
+
+Detail design: [docs/tcr_commands.md](docs/tcr_commands.md)
 
 ---
 
@@ -117,10 +134,11 @@ host_tools/
   tcr-create-image.sh       # [build PC] pull + unpack + package → .sqfs
 
 src/
-  tcrd.c                     # target device daemon (C) — not yet implemented
+  tcrd.c                     # target device daemon — RPC dispatch, signal handling, lock file
   tcr.c                      # CLI client (thin RPC pass-through)
   app/
     common.h                 # shared definitions (TCR_SOCKET_PATH)
+    daemon-constants.h       # daemon-only constants (error codes, default paths, lock file)
   common/
     list.h                   # Linux kernel-style intrusive linked list
     bitmap.c                 # dynamic bitmap for IP allocation
@@ -164,6 +182,7 @@ docs/
   image_manager.md           # image manager design document
   seccomp_resource.md        # seccomp embedding design document
   tcr_client.md              # tcr client design document
+  tcr_commands.md            # tcrd command reference (all commands, flags, error codes)
 
 test/
   test_container_manager.c   # container manager tests (18 tests)
@@ -184,6 +203,7 @@ test/
   run_test_nat_network_manager.sh  # NAT network manager test runner (valgrind)
   run_test_port_forwarder.sh # port forwarder test runner (valgrind)
   run_image_manager_test.sh  # image manager test runner (valgrind)
+  run_test_tcrd.sh           # tcrd integration test runner (valgrind, 61 assertions)
 ```
 
 ### Testing
@@ -216,6 +236,8 @@ Tests that require root (mount, netns, nftables) have wrapper scripts:
 | `run_test_nat_network_manager.sh` | NAT network manager (+ valgrind) | yes | no |
 | `run_test_port_forwarder.sh` | port forwarder (+ valgrind) | yes | no |
 | `run_test_dns_forwarder.sh` | DNS forwarder (+ valgrind) | no | yes (upstream forwarding tests) |
+
+| `run_test_tcrd.sh` | tcrd integration (+ valgrind, 61 assertions) | yes | yes (pulls image on first run) |
 
 In-process tests (no wrapper script, no root):
 

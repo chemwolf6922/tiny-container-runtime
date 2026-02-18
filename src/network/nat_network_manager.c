@@ -154,6 +154,19 @@ void nat_network_manager_free(nat_network_manager manager)
     free(mgr);
 }
 
+nat_network nat_network_manager_find_network(
+    nat_network_manager manager,
+    const char *name)
+{
+    if (!manager) return NULL;
+    struct nat_network_manager_s *mgr = manager;
+
+    const char *key = name ? name : NAT_NETWORK_MANAGER_DEFAULT_NAME;
+    size_t key_len = strlen(key);
+
+    return map_get(mgr->networks, (void *)key, key_len);
+}
+
 nat_network nat_network_manager_get_network(
     nat_network_manager manager,
     const char *name)

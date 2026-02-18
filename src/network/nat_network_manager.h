@@ -36,6 +36,17 @@ nat_network nat_network_manager_get_network(
     const char* name);
 
 /**
+ * @brief Find a NAT network by name without creating it.
+ * 
+ * @param manager The NAT network manager to search in.
+ * @param name The name of the NAT network. If NULL, will use the default name.
+ * @return nat_network if found, NULL if not found. Owned by the manager.
+ */
+nat_network nat_network_manager_find_network(
+    nat_network_manager manager,
+    const char* name);
+
+/**
  * @brief Remove a NAT network by name.
  * 
  * @param manager The NAT network manager to remove the network from.

@@ -314,6 +314,14 @@ bool container_is_running(container c);
  */
 bool container_is_detached(container c);
 
+/**
+ * @brief Get the image associated with this container.
+ *
+ * @param c The container to query.
+ * @return image The image, or NULL if the container is NULL.
+ */
+image container_get_image(container c);
+
 /** Detached mode: Run in the background and manage the container lifecycle.
  *
  * The daemon fork+exec's `crun run`. The child process calls

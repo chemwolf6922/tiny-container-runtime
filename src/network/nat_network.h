@@ -88,6 +88,16 @@ int nat_network_remove_network_namespace(nat_network network, const char* namesp
 const char* nat_network_get_name(nat_network network);
 
 /**
+ * @brief Get the subnet string of the NAT network (e.g. "10.88.0.0/24").
+ *
+ * @param network The NAT network to query.
+ * @param buf Output buffer (at least 20 bytes).
+ * @param buf_len Size of the output buffer.
+ * @return int 0 on success, -1 on error.
+ */
+int nat_network_get_subnet_str(nat_network network, char *buf, size_t buf_len);
+
+/**
  * @brief Get the DNS forwarder associated with this NAT network.
  * 
  * Each NAT network has a built-in DNS forwarder that listens on the

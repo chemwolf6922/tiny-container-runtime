@@ -162,14 +162,14 @@ static int netns_create(const char *name)
         if (unshare(CLONE_NEWNET) == 0 &&
             mount("/proc/self/ns/net", path, "none", MS_BIND, NULL) == 0)
             result = 0;
-        (void)write(pipefd[1], &result, 1);
+        if (write(pipefd[1], &result, 1) != 1) { /* best effort */ }
         close(pipefd[1]);
         _exit(0);
     }
 
     close(pipefd[1]);
     char result = 1;
-    (void)read(pipefd[0], &result, 1);
+    if (read(pipefd[0], &result, 1) != 1) result = 1;
     close(pipefd[0]);
     waitpid(pid, NULL, 0);
 
@@ -638,7 +638,7 @@ static int configure_netns_internal(const char *netns_name,
         result = (err < 0) ? 1 : 0;
 
 child_done:
-        (void)write(pipefd[1], &result, 1);
+        if (write(pipefd[1], &result, 1) != 1) { /* best effort */ }
         close(pipefd[1]);
         _exit(0);
     }
@@ -646,7 +646,7 @@ child_done:
     /* ── Parent: wait for child ── */
     close(pipefd[1]);
     char result = 1;
-    (void)read(pipefd[0], &result, 1);
+    if (read(pipefd[0], &result, 1) != 1) result = 1;
     close(pipefd[0]);
     waitpid(pid, NULL, 0);
 
@@ -843,6 +843,16 @@ dns_forwarder nat_network_get_dns_forwarder(nat_network network)
 {
     if (!network) return NULL;
     return network->dns;
+}
+
+int nat_network_get_subnet_str(nat_network network, char *buf, size_t buf_len)
+{
+    if (!network || !buf || buf_len < 20) return -1;
+    struct in_addr addr = { .s_addr = network->subnet_nbo };
+    char ip[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &addr, ip, sizeof(ip));
+    snprintf(buf, buf_len, "%s/%d", ip, network->prefix_len);
+    return 0;
 }
 
 int nat_network_get_gateway(nat_network network, struct in_addr *out)

@@ -208,3 +208,60 @@ target_include_directories(test_tcr_client PRIVATE
 target_link_libraries(test_tcr_client tev cjson pthread)
 
 add_dependencies(test_tcr_client test_tcr_client_helper)
+
+# --------------------------------------------------------------------------
+# test_tcrd_helper: tcrd daemon with test socket path
+# --------------------------------------------------------------------------
+add_executable(test_tcrd_helper
+    ../src/tcrd.c
+    ../src/rpc/rpc_server.c
+    ../src/container/container_manager.c
+    ../src/container/crun_config.c
+    ../src/image/image_manager.c
+    ../src/network/dns_forwarder.c
+    ../src/network/nat_network_manager.c
+    ../src/network/nat_network.c
+    ../src/network/nft_helper.c
+    ../src/network/port_forwarder.c
+    ../src/common/bitmap.c
+    ../src/common/utils.c
+)
+
+target_include_directories(test_tcrd_helper PRIVATE
+    ../src
+    ${LIBNL3_INCLUDE_DIRS}
+    ${LIBNL_ROUTE3_INCLUDE_DIRS}
+)
+
+target_compile_definitions(test_tcrd_helper PRIVATE
+    TCR_SOCKET_PATH="@tcr_integration_test"
+    TCR_LOCK_FILE="/tmp/tcrd_integration_test.lock"
+)
+
+target_link_libraries(test_tcrd_helper
+    seccomp_resource
+    cjson
+    tev
+    uuid
+    ${LIBNL3_LIBRARIES}
+    ${LIBNL_ROUTE3_LIBRARIES}
+    nftables
+)
+
+# --------------------------------------------------------------------------
+# test_tcr_helper: tcr client with test socket path (matching test_tcrd_helper)
+# --------------------------------------------------------------------------
+add_executable(test_tcr_helper
+    ../src/tcr.c
+    ../src/rpc/rpc_client.c
+)
+
+target_include_directories(test_tcr_helper PRIVATE
+    ../src
+)
+
+target_compile_definitions(test_tcr_helper PRIVATE
+    TCR_SOCKET_PATH="@tcr_integration_test"
+)
+
+target_link_libraries(test_tcr_helper tev cjson)

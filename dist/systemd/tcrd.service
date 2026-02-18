@@ -1,0 +1,16 @@
+[Unit]
+Description=Tiny Container Runtime Daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/tcrd
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+ProtectHome=read-only
+NoNewPrivileges=no
+
+[Install]
+WantedBy=multi-user.target
