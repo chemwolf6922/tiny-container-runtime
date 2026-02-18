@@ -26,7 +26,8 @@ TCR is a minimal container runtime designed for resource-limited embedded device
 Build:
 - C compiler (gcc or clang)
 - CMake ≥ 3.10
-- libtev (event loop), libcjson, libuuid
+- [libtev](https://github.com/chemwolf6922/tiny-event-loop) (event loop, build from source — see below)
+- libcjson, libuuid
 - libnl-3, libnl-route-3
 - libnftables
 
@@ -38,6 +39,20 @@ Image creation (build machine only):
 - skopeo, umoci, mksquashfs (squashfs-tools with zstd support)
 
 ## Building
+
+### Install libtev
+
+libtev is not available as a system package and must be built from source:
+
+```bash
+git clone https://github.com/chemwolf6922/tiny-event-loop.git /tmp/tev
+cd /tmp/tev
+make -j$(nproc)
+sudo make install
+sudo ldconfig
+```
+
+### Build tcr
 
 ```bash
 mkdir -p build && cd build
