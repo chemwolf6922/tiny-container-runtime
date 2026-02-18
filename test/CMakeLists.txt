@@ -173,3 +173,38 @@ target_include_directories(test_rpc PRIVATE
 )
 
 target_link_libraries(test_rpc tev cjson pthread)
+
+# --------------------------------------------------------------------------
+# test_tcr_client: helper binary (tcr client with test socket path)
+# --------------------------------------------------------------------------
+add_executable(test_tcr_client_helper
+    ../src/tcr.c
+    ../src/rpc/rpc_client.c
+)
+
+target_include_directories(test_tcr_client_helper PRIVATE
+    ../src
+)
+
+target_compile_definitions(test_tcr_client_helper PRIVATE
+    TCR_SOCKET_PATH="@tcr_client_test"
+)
+
+target_link_libraries(test_tcr_client_helper tev cjson)
+
+# --------------------------------------------------------------------------
+# test_tcr_client: the actual test runner
+# --------------------------------------------------------------------------
+add_executable(test_tcr_client
+    test_tcr_client.c
+    ../src/rpc/rpc_server.c
+)
+
+target_include_directories(test_tcr_client PRIVATE
+    ../src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(test_tcr_client tev cjson pthread)
+
+add_dependencies(test_tcr_client test_tcr_client_helper)

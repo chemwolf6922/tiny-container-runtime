@@ -18,6 +18,8 @@ typedef struct rpc_client_s* rpc_client;
  * @param tev event loop handle
  * @param socket_path UDS path. Set the first byte to '@' for abstract namespace.
  * @param on_connect_result callback for the async connection result.
+ *                         On failure, the rpc_client is released before this callback is invoked.
+ *                         The caller must not use the rpc_client after a failure callback.
  * @param on_disconnect callback for unexpected disconnection. This will not be called if the client calls close.
  *                     The rpc_client is not longer valid inside and after this callback.
  * @param user_data user data to be passed to the callbacks.

@@ -135,10 +135,12 @@ static void on_connect_writable(void *ctx)
     socklen_t so_len = sizeof(so_err);
     if (getsockopt(client->fd, SOL_SOCKET, SO_ERROR, &so_err, &so_len) < 0 ||
         so_err != 0) {
-        /* Connection failed. */
-        cleanup_connection(client);
-        if (client->on_connect_result)
-            client->on_connect_result(false, client->user_data);
+        /* Connection failed. Release fully before callback. */
+        void (*cb)(bool, void *) = client->on_connect_result;
+        void *ud = client->user_data;
+        rpc_client_close(client);
+        if (cb)
+            cb(false, ud);
         return;
     }
 
@@ -147,9 +149,11 @@ static void on_connect_writable(void *ctx)
     client->connected = true;
 
     if (tev_set_read_handler(client->tev, client->fd, on_readable, client) != 0) {
-        cleanup_connection(client);
-        if (client->on_connect_result)
-            client->on_connect_result(false, client->user_data);
+        void (*cb)(bool, void *) = client->on_connect_result;
+        void *ud = client->user_data;
+        rpc_client_close(client);
+        if (cb)
+            cb(false, ud);
         return;
     }
 
