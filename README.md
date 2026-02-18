@@ -45,7 +45,7 @@ Image creation (build machine only):
 libtev is not available as a system package and must be built from source:
 
 ```bash
-git clone https://github.com/chemwolf6922/tiny-event-loop.git /tmp/tev
+git clone --recursive https://github.com/chemwolf6922/tiny-event-loop.git /tmp/tev
 cd /tmp/tev
 make -j$(nproc)
 sudo make install

@@ -24,7 +24,7 @@ jobs:
 
       - name: Build and install libtev
         run: |
-          git clone https://github.com/chemwolf6922/tiny-event-loop.git /tmp/tev
+          git clone --recursive https://github.com/chemwolf6922/tiny-event-loop.git /tmp/tev
           cd /tmp/tev
           make -j$(nproc)
           sudo make install
