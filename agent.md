@@ -12,7 +12,7 @@ Build a tiny container runtime for resource-limited embedded devices. The workfl
 
 ## Current Implementation Status
 
-The following components are implemented. The higher-level daemon (`tcrd`) and CLI client (`tcr`) are not yet implemented.
+The following components are implemented. The higher-level daemon (`tcrd`) is not yet implemented.
 
 1. **`host_tools/tcr-create-image.sh`** — build-machine tool to pull, unpack, and package OCI images into squashfs. See [docs/create_image.md](docs/create_image.md).
 2. **`src/network/dns_forwarder.{c,h}`** — lightweight event-loop-based UDP DNS forwarder. Each NAT network creates its own instance on the gateway address. See [docs/dns_forwarder.md](docs/dns_forwarder.md).
@@ -23,6 +23,9 @@ The following components are implemented. The higher-level daemon (`tcrd`) and C
 7. **`src/container/crun_config.{c,h}`** — OCI runtime config builder/manipulator for crun. Applies security defaults (capabilities, namespaces, seccomp), default mounts, and provides mutation APIs. See [docs/crun_config.md](docs/crun_config.md).
 8. **`src/container/container_manager.{c,h}`** — full container lifecycle manager. Supports detached and interactive modes, overlayfs, NAT networking, port forwarding, restart persistence, and process monitoring via pidfd. See [docs/container_manager.md](docs/container_manager.md).
 9. **`src/common/utils.{c,h}`** — shared utility functions (`path_join`, `load_json_file`, `rmdir_recursive`) used across modules.
+10. **`src/rpc/rpc_client.{c,h}` / `rpc_server.{c,h}`** — minimal JSON RPC over `SOCK_SEQPACKET` Unix domain sockets. Async, tev-integrated, supports timeouts and cancellation.
+11. **`src/tcr.c`** — thin CLI client that forwards argv to the daemon via JSON RPC. No business logic. See [docs/tcr_client.md](docs/tcr_client.md).
+12. **`src/app/common.h`** — shared definitions between client and daemon (socket path).
 
 ---
 
@@ -115,7 +118,9 @@ host_tools/
 
 src/
   tcrd.c                     # target device daemon (C) — not yet implemented
-  tcr.c                      # CLI client (C) — not yet implemented
+  tcr.c                      # CLI client (thin RPC pass-through)
+  app/
+    common.h                 # shared definitions (TCR_SOCKET_PATH)
   common/
     list.h                   # Linux kernel-style intrusive linked list
     bitmap.c                 # dynamic bitmap for IP allocation
@@ -141,6 +146,11 @@ src/
     nft_helper.h
     port_forwarder.c         # nftables DNAT port forwarding
     port_forwarder.h
+  rpc/
+    rpc_client.c             # JSON RPC client (async, tev-based)
+    rpc_client.h
+    rpc_server.c             # JSON RPC server (async, tev-based)
+    rpc_server.h
   resource/
     seccomp.json             # default seccomp profile (compacted)
     seccomp_json.h           # C header for embedded JSON symbols
@@ -153,6 +163,7 @@ docs/
   dns_forwarder.md           # DNS forwarder design document
   image_manager.md           # image manager design document
   seccomp_resource.md        # seccomp embedding design document
+  tcr_client.md              # tcr client design document
 
 test/
   test_container_manager.c   # container manager tests (18 tests)
@@ -162,7 +173,9 @@ test/
   test_nat_network.c         # NAT network tests
   test_nat_network_manager.c # NAT network manager tests
   test_port_forwarder.c      # port forwarder tests
+  test_rpc.c                 # RPC client/server tests (57 assertions)
   test_seccomp_resource.c    # seccomp embedding validation test
+  test_tcr_client.c          # tcr client integration tests (33 assertions)
   test_util.h                # shared test macros (CHECK) and helpers (test_get_data_dir)
   run_test_container_manager.sh  # container manager test runner (valgrind)
   run_test_crun_config.sh    # crun_config test runner (valgrind)
@@ -204,10 +217,19 @@ Tests that require root (mount, netns, nftables) have wrapper scripts:
 | `run_test_port_forwarder.sh` | port forwarder (+ valgrind) | yes | no |
 | `run_test_dns_forwarder.sh` | DNS forwarder (+ valgrind) | no | yes (upstream forwarding tests) |
 
+In-process tests (no wrapper script, no root):
+
+| Binary | What it tests |
+|--------|---------------|
+| `test_rpc` | RPC client/server (57 assertions) |
+| `test_tcr_client` | tcr client integration (33 assertions, uses helper binary) |
+| `test_seccomp_resource` | seccomp embedding validation |
+
 Non-root tests can be run directly:
 
 ```bash
-./build/test_seccomp_resource
+cd test/build && valgrind --leak-check=full --error-exitcode=1 ./test_rpc
+cd test/build && valgrind --leak-check=full --error-exitcode=1 ./test_tcr_client
 ```
 
 ### Coding rules
