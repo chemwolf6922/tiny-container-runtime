@@ -37,7 +37,7 @@ The central daemon that ties all subsystems together. Single-process, event-driv
 
 - **RPC dispatch** — receives method+args via JSON RPC, dispatches to handler functions
 - **Signal handling** — SIGINT/SIGTERM via signalfd, integrated into tev event loop for graceful shutdown
-- **Supported commands**: `run`, `ps`, `stop`, `kill`, `rm`, `image load/ls/rm`, `network ls/rm`, `help`
+- **Supported commands**: `run`, `exec`, `ps`, `stop`, `kill`, `rm`, `image load/ls/rm`, `network ls/rm`, `help`
 - **Default networking** — containers get a NAT network (`tcr_default`) unless `--no-network` or `--network <name>` is specified
 - **Image identification** — images are indexed by a 16-character hex id (xxh64 hash of the OCI digest), computed at build time by `tcr-create-image.sh`
 - **Lock file** — `/var/run/tcrd.lock` with `flock(LOCK_EX|LOCK_NB)` ensures only one instance runs; PID written for diagnostics
@@ -238,7 +238,7 @@ Tests that require root (mount, netns, nftables) have wrapper scripts:
 | `run_test_port_forwarder.sh` | port forwarder (+ valgrind) | yes | no |
 | `run_test_dns_forwarder.sh` | DNS forwarder (+ valgrind) | no | yes (upstream forwarding tests) |
 
-| `run_test_tcrd.sh` | tcrd integration (+ valgrind, 61 assertions) | yes | yes (pulls image on first run) |
+| `run_test_tcrd.sh` | tcrd integration (+ valgrind, 75 assertions) | yes | yes (pulls image on first run) |
 
 In-process tests (no wrapper script, no root):
 

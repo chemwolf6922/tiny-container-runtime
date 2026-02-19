@@ -96,6 +96,10 @@ The client runs crun directly. `container_get_crun_args()` returns the exact arg
 
 Interactive mode rejects containers with `restart_policy != NEVER` (restart requires daemon ownership of the process).
 
+### Exec Mode
+
+`container_get_exec_args()` builds a `crun exec` argv for running a command inside a running container. Supports `-d` (detach), `-t` (TTY), and `-e KEY=VALUE` (environment variables). The client `execvp`'s into crun exec, which enters the container's namespaces and runs the command. All exec processes are children of the container's PID namespace and die when the container stops.
+
 ## Overlay Filesystem
 
 For read-write containers, overlayfs provides a writable layer on top of the read-only image:
@@ -254,7 +258,8 @@ Port forwarding parameters (host_ip, host_port, container_port, protocol) are st
 | `container_stop(c, immediately)` | Stop container (graceful or immediate) |
 | `container_remove(c)` | Force stop + remove all resources + delete from disk |
 | `container_get_crun_args(c, argv, argc)` | Get crun argv for interactive mode |
-| `container_free_crun_args(argv, argc)` | Free argv from above |
+| `container_get_exec_args(c, detach, tty, env, env_count, cmd, cmd_count, argv, argc)` | Get crun exec argv for exec mode |
+| `container_free_crun_args(argv, argc)` | Free argv from above (works for both run and exec) |
 | `container_monitor_process(c, pid)` | Monitor externally-started process |
 
 ### Query

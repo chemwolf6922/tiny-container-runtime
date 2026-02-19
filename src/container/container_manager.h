@@ -351,7 +351,30 @@ int container_start(container c);
 int container_get_crun_args(container c, char*** out_argv, size_t* out_argc);
 
 /**
- * @brief Free the argv returned by container_get_crun_args.
+ * @brief Build the crun exec argv for executing a command inside a running container.
+ *
+ * Validates that the container is in RUNNING state, then builds the argv:
+ *   ["crun", "exec", [-d], [-t], [-e K=V ...], <container_id>, cmd...]
+ *
+ * @param c            The container to exec into (must be running).
+ * @param detach       If true, adds -d flag (run command in background inside container).
+ * @param tty          If true, adds -t flag (allocate pseudo-TTY).
+ * @param env          Array of "KEY=VALUE" strings (may be NULL if env_count == 0).
+ * @param env_count    Number of environment variable strings.
+ * @param cmd          Command and arguments to execute.
+ * @param cmd_count    Number of command arguments (must be >= 1).
+ * @param out_argv     Output: newly allocated argv array. Caller must free with container_free_crun_args.
+ * @param out_argc     Output: number of elements in out_argv.
+ * @return int 0 on success, -1 if failed.
+ */
+int container_get_exec_args(container c,
+                            bool detach, bool tty,
+                            const char **env, size_t env_count,
+                            const char **cmd, size_t cmd_count,
+                            char ***out_argv, size_t *out_argc);
+
+/**
+ * @brief Free the argv returned by container_get_crun_args or container_get_exec_args.
  * 
  * @param argv The argument vector to free.
  * @param argc The argument count.

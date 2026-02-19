@@ -1920,6 +1920,71 @@ void container_free_crun_args(char **argv, size_t argc)
 }
 
 /* -------------------------------------------------------------------------- */
+/*  container_get_exec_args                                                    */
+/* -------------------------------------------------------------------------- */
+
+int container_get_exec_args(container c,
+                            bool detach, bool tty,
+                            const char **env, size_t env_count,
+                            const char **cmd, size_t cmd_count,
+                            char ***out_argv, size_t *out_argc)
+{
+    if (!c || !out_argv || !out_argc || cmd_count == 0 || !cmd) return -1;
+
+    if (c->state != CONTAINER_STATE_RUNNING)
+    {
+        fprintf(stderr, "container_manager: container '%s' is not running\n", c->id);
+        return -1;
+    }
+
+    /* Calculate argc: "crun" "exec" [flags] <id> <cmd...> */
+    size_t argc = 2; /* crun exec */
+    if (detach) argc++;                  /* -d */
+    if (tty) argc++;                     /* -t */
+    argc += env_count * 2;               /* -e KEY=VALUE for each */
+    argc++;                              /* container id */
+    argc += cmd_count;                   /* command + args */
+
+    char **argv = calloc(argc + 1, sizeof(char *));
+    if (!argv) return -1;
+
+    size_t i = 0;
+    argv[i++] = strdup("crun");
+    argv[i++] = strdup("exec");
+
+    if (detach)
+        argv[i++] = strdup("-d");
+    if (tty)
+        argv[i++] = strdup("-t");
+
+    for (size_t e = 0; e < env_count; e++)
+    {
+        argv[i++] = strdup("-e");
+        argv[i++] = strdup(env[e]);
+    }
+
+    argv[i++] = strdup(c->id);
+
+    for (size_t j = 0; j < cmd_count; j++)
+        argv[i++] = strdup(cmd[j]);
+
+    /* Check for allocation failures */
+    for (size_t k = 0; k < argc; k++)
+    {
+        if (!argv[k])
+        {
+            for (size_t m = 0; m < argc; m++) free(argv[m]);
+            free(argv);
+            return -1;
+        }
+    }
+
+    *out_argv = argv;
+    *out_argc = argc;
+    return 0;
+}
+
+/* -------------------------------------------------------------------------- */
 /*  container_monitor_process (interactive mode)                               */
 /* -------------------------------------------------------------------------- */
 

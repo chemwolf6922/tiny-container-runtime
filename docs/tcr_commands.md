@@ -8,6 +8,7 @@ Commands use a flat `<noun> <verb>` or single-verb structure:
 
 ```
 tcr run [options] <image> [command...]
+tcr exec [options] <container> <command...>
 tcr ps
 tcr stop <container>
 tcr kill <container>
@@ -118,6 +119,37 @@ Maps to `container_remove(c)`.
 
 Returns `{ "exitCode": 0, "stdOut": "<id>\n" }` on success.
 
+### `tcr exec [options] <container> <command...>`
+
+Execute a command inside a running container. The daemon builds the `crun exec` argv and returns it as `execArgs`; the client `execvp`'s into crun.
+
+#### Options
+
+| Flag | Description |
+|---|---|
+| `-d` | Detach — run the command in the background inside the container |
+| `-t` | Allocate a pseudo-TTY |
+| `-e KEY=VALUE` | Set environment variable (repeatable) |
+
+#### Response
+
+`{ "execArgs": ["crun", "exec", ...] }` — client exec's into crun exec.
+
+#### Errors
+
+- Container not found → error code 2
+- Container not running → error code 6
+- No command specified → error code 6
+
+#### Examples
+
+```bash
+tcr exec mycontainer /bin/sh                  # interactive shell
+tcr exec -t mycontainer /bin/bash             # interactive with TTY
+tcr exec -d mycontainer top                   # run in background
+tcr exec -e MY_VAR=hello mycontainer env      # with env variable
+```
+
 ---
 
 ## Image Commands
@@ -219,6 +251,7 @@ The daemon maps `method` (argv[1]) to a handler. Subcommands like `image` use th
 | `method` | `args[0]` | Handler |
 |---|---|---|
 | `run` | — | `handle_run(args)` |
+| `exec` | — | `handle_exec(args)` |
 | `ps` | — | `handle_ps(args)` |
 | `stop` | — | `handle_stop(args)` |
 | `kill` | — | `handle_kill(args)` |
@@ -249,18 +282,6 @@ This means containers can reach the internet and discover each other by name (vi
 ## Future Commands (Not Yet Implemented)
 
 The following commands are planned but have no implementation yet. They are documented here for design continuity.
-
-### `tcr exec [options] <container> <command...>`
-
-Execute a command inside a running container. Returns `execArgs` for client-side `execvp` into `crun exec`.
-
-Planned options:
-- `-t` — allocate a pseudo-TTY
-- `-e KEY=VALUE` — pass environment variables
-
-Response format: `{ "execArgs": ["crun", "exec", "-t", "<id>", "<cmd>", ...] }`
-
-Requires: extending `container_manager` with an API to build exec args for a running container.
 
 ### `tcr logs <container>`
 

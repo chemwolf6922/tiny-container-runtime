@@ -271,7 +271,7 @@ echo ""
 
 echo "--- run detached with default network ---"
 run_tcr 0 "run detached with network" \
-    run -d --name test2 --read-only alpine sleep 300
+    run -d --name test2 alpine sleep 300
 CONTAINER_ID2=$(echo "$LAST_OUTPUT" | tr -d '[:space:]')
 echo "  container: $CONTAINER_ID2"
 echo ""
@@ -294,18 +294,60 @@ assert_contains "network ls header" "NAME"
 assert_contains "network ls shows tcr_default" "tcr_default"
 echo ""
 
+# ── exec (while test2 is running) ───────────────────────────────────────────
+
+echo "--- exec ---"
+
+# exec a simple command — the client execvp's into crun, so we get the
+# actual command output (not the raw execArgs).
+run_tcr 0 "exec cat in running container" exec test2 cat /etc/os-release
+assert_contains "exec output has alpine" "Alpine"
+echo ""
+
+# exec with -e env
+run_tcr 0 "exec with -e" exec -e MY_VAR=hello test2 /bin/sh -c 'echo $MY_VAR'
+assert_contains "exec -e value" "hello"
+echo ""
+
+# exec non-existent container
+run_tcr 1 "exec nonexistent container" exec nonexistent_ctr cat /etc/os-release
+assert_contains "exec nonexistent error" "not found"
+echo ""
+
+# exec no command
+run_tcr 1 "exec no command" exec test2
+assert_contains "exec no command error" "no command"
+echo ""
+
+# exec unknown flag
+run_tcr 1 "exec unknown flag" exec --bogus test2 sh
+assert_contains "exec unknown flag error" "unknown option"
+echo ""
+
+# exec bad -e format
+run_tcr 1 "exec bad -e" exec -e BADENV test2 sh
+assert_contains "exec bad env error" "KEY=VALUE"
+echo ""
+
 # ── stop ─────────────────────────────────────────────────────────────────────
 
 echo "--- stop ---"
-run_tcr 0 "stop test2" stop test2
+run_tcr 0 "stop test2" kill test2
 assert_contains "stop returns container id" "$CONTAINER_ID2"
 echo ""
 
-sleep 1
+sleep 2
 
 echo "--- ps after stop ---"
 run_tcr 0 "ps after stop" ps
 assert_contains "ps shows stopped" "stopped"
+echo ""
+
+# ── exec on stopped container ────────────────────────────────────────────────
+
+echo "--- exec on stopped container ---"
+run_tcr 1 "exec on stopped container" exec test2 echo test
+assert_contains "exec stopped error" "not running"
 echo ""
 
 # ── stop non-existent ────────────────────────────────────────────────────────

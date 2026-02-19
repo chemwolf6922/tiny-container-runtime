@@ -462,6 +462,101 @@ static int handle_run(rpc_request_handle h, const cJSON *params)
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
+/*  Handler: exec                                                             */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+static int handle_exec(rpc_request_handle h, const cJSON *params)
+{
+    int argc;
+    const char **argv;
+    if (params_get_args(params, &argc, &argv) != 0)
+        return reply_error(g_ctx.server, h, ERR_INTERNAL, "failed to parse args");
+
+    /* Flags */
+    bool detach = false;
+    bool tty = false;
+    const char *env_arr[256]; /* stack buffer — bounded by arg count */
+    size_t env_count = 0;
+    const char *container_ref = NULL;
+
+    int i = 0;
+    while (i < argc) {
+        const char *a = argv[i];
+
+        if (strcmp(a, "-d") == 0) {
+            detach = true;
+            i++;
+        } else if (strcmp(a, "-t") == 0) {
+            tty = true;
+            i++;
+        } else if (strcmp(a, "-e") == 0 && i + 1 < argc) {
+            const char *env_val = argv[++i];
+            if (!strchr(env_val, '=')) {
+                free(argv);
+                return reply_error(g_ctx.server, h, ERR_INVALID_ARG,
+                                   "bad -e format, expected KEY=VALUE");
+            }
+            if (env_count < sizeof(env_arr) / sizeof(env_arr[0]))
+                env_arr[env_count++] = env_val;
+            i++;
+        } else if (a[0] == '-') {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "unknown option: %s", a);
+            free(argv);
+            return reply_error(g_ctx.server, h, ERR_INVALID_ARG, msg);
+        } else {
+            /* First non-flag = container ref */
+            container_ref = a;
+            i++;
+            break;
+        }
+    }
+
+    /* Validate container ref */
+    if (!container_ref) {
+        free(argv);
+        return reply_error(g_ctx.server, h, ERR_INVALID_ARG, "no container specified");
+    }
+
+    /* Remaining args = command */
+    const char **cmd = &argv[i];
+    size_t cmd_count = (size_t)(argc - i);
+
+    if (cmd_count == 0) {
+        free(argv);
+        return reply_error(g_ctx.server, h, ERR_INVALID_ARG, "no command specified");
+    }
+
+    /* Find container */
+    container c = container_manager_find_container(g_ctx.ctr_manager, container_ref);
+    if (!c) {
+        free(argv);
+        return reply_error(g_ctx.server, h, ERR_CONTAINER_NOT_FOUND, "container not found");
+    }
+
+    if (!container_is_running(c)) {
+        free(argv);
+        return reply_error(g_ctx.server, h, ERR_INVALID_ARG, "container is not running");
+    }
+
+    /* Build crun exec args */
+    char **exec_argv;
+    size_t exec_argc;
+    if (container_get_exec_args(c, detach, tty,
+                                env_arr, env_count,
+                                cmd, cmd_count,
+                                &exec_argv, &exec_argc) != 0) {
+        free(argv);
+        return reply_error(g_ctx.server, h, ERR_INTERNAL, "failed to build exec args");
+    }
+
+    int rc = reply_exec(g_ctx.server, h, exec_argv, exec_argc);
+    container_free_crun_args(exec_argv, exec_argc);
+    free(argv);
+    return rc;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
 /*  Handler: ps                                                               */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
@@ -928,6 +1023,7 @@ static int handle_help(rpc_request_handle h)
         "\n"
         "Container commands:\n"
         "  run [options] <image> [cmd...]  Create and run a container\n"
+        "  exec [options] <container> <cmd...>  Execute a command in a running container\n"
         "  ps                              List containers\n"
         "  stop <container>                Graceful stop (SIGTERM + timeout)\n"
         "  kill <container>                Immediate stop (SIGKILL)\n"
@@ -955,7 +1051,12 @@ static int handle_help(rpc_request_handle h)
         "  --network <name>     NAT network (default: tcr_default)\n"
         "  --no-network         Disable networking\n"
         "  --restart <policy>   no | unless-stopped | always\n"
-        "  --stop-timeout <s>   Graceful stop timeout (default: 10s)\n";
+        "  --stop-timeout <s>   Graceful stop timeout (default: 10s)\n"
+        "\n"
+        "Exec options:\n"
+        "  -d                   Detach (run command in background)\n"
+        "  -t                   Allocate pseudo-TTY\n"
+        "  -e KEY=VALUE         Environment variable (repeatable)\n";
 
     return reply_output(g_ctx.server, h, 0, help_text, NULL);
 }
@@ -971,6 +1072,8 @@ static int on_rpc_request(rpc_request_handle handle, const char *method,
 
     if (strcmp(method, "run") == 0)
         return handle_run(handle, params);
+    if (strcmp(method, "exec") == 0)
+        return handle_exec(handle, params);
     if (strcmp(method, "ps") == 0)
         return handle_ps(handle, params);
     if (strcmp(method, "stop") == 0)
