@@ -6,7 +6,6 @@
 
 #include <tev/map.h>
 #include <cjson/cJSON.h>
-#include <uuid/uuid.h>
 
 #include "common/list.h"
 #include "common/utils.h"
@@ -686,11 +685,24 @@ image image_manager_load(image_manager manager, const char *path)
         return NULL;
     }
 
-    /* generate UUID for the mount directory */
-    uuid_t uuid;
-    char uuid_str[37];
-    uuid_generate(uuid);
-    uuid_unparse_lower(uuid, uuid_str);
+    /* generate random hex string for the mount directory */
+    unsigned char rand_bytes[16];
+    char uuid_str[33];
+    int urand_fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+    if (urand_fd < 0)
+    {
+        fprintf(stderr, "image_manager: cannot open /dev/urandom\n");
+        return NULL;
+    }
+    ssize_t n = read(urand_fd, rand_bytes, sizeof(rand_bytes));
+    close(urand_fd);
+    if (n != (ssize_t)sizeof(rand_bytes))
+    {
+        fprintf(stderr, "image_manager: short read from /dev/urandom\n");
+        return NULL;
+    }
+    for (int i = 0; i < 16; i++)
+        snprintf(uuid_str + i * 2, 3, "%02x", rand_bytes[i]);
 
     /* set up paths */
     image img = calloc(1, sizeof(*img));

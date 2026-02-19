@@ -228,9 +228,9 @@ echo ""
 
 echo "--- image load ---"
 run_tcr 0 "image load" image load "$SQFS_FILE"
-assert_contains "image load returns digest" "sha256:"
-IMAGE_DIGEST=$(echo "$LAST_OUTPUT" | tr -d '[:space:]')
-echo "  loaded: $IMAGE_DIGEST"
+IMAGE_ID=$(echo "$LAST_OUTPUT" | tr -d '[:space:]')
+assert_contains "image load returns id" "$IMAGE_ID"
+echo "  loaded: $IMAGE_ID"
 echo ""
 
 # ── image ls ─────────────────────────────────────────────────────────────────
@@ -238,7 +238,7 @@ echo ""
 echo "--- image ls ---"
 run_tcr 0 "image ls" image ls
 assert_contains "image ls shows alpine" "alpine"
-assert_contains "image ls header" "DIGEST"
+assert_contains "image ls header" "IMAGE ID"
 echo ""
 
 # ── image load duplicate ─────────────────────────────────────────────────────
@@ -360,7 +360,7 @@ echo ""
 
 echo "--- image rm ---"
 run_tcr 0 "image rm" image rm alpine:latest
-assert_contains "image rm returns digest" "sha256:"
+assert_contains "image rm returns id" "$IMAGE_ID"
 echo ""
 
 # ── image ls (should be empty) ───────────────────────────────────────────────

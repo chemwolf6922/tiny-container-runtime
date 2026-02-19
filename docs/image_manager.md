@@ -6,7 +6,7 @@ Manages the lifecycle of squashfs container images on the target device: loading
 
 **Location**: `src/image/image_manager.h`, `src/image/image_manager.c`
 
-**Dependencies**: `libtev` (map), `libcjson` (JSON parsing), `libuuid` (UUID generation), Linux kernel modules: `loop`, `squashfs`
+**Dependencies**: `libtev` (map), `libcjson` (JSON parsing), Linux kernel modules: `loop`, `squashfs`
 
 ## Architecture
 

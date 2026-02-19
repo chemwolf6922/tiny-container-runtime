@@ -57,7 +57,6 @@ target_link_libraries(tcrd
     seccomp_resource
     cjson
     tev
-    uuid
     ${LIBNL3_LIBRARIES}
     ${LIBNL_ROUTE3_LIBRARIES}
     nftables

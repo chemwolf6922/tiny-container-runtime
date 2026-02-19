@@ -35,7 +35,7 @@ target_include_directories(test_image_manager PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(test_image_manager tev cjson uuid)
+target_link_libraries(test_image_manager tev cjson)
 
 add_subdirectory(../src/resource ${CMAKE_CURRENT_BINARY_DIR}/resource)
 
@@ -63,7 +63,7 @@ target_include_directories(test_crun_config PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(test_crun_config seccomp_resource cjson tev uuid)
+target_link_libraries(test_crun_config seccomp_resource cjson tev)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBNL3 REQUIRED libnl-3.0)
@@ -155,7 +155,6 @@ target_link_libraries(test_container_manager
     seccomp_resource
     cjson
     tev
-    uuid
     ${LIBNL3_LIBRARIES}
     ${LIBNL_ROUTE3_LIBRARIES}
     nftables
@@ -242,7 +241,6 @@ target_link_libraries(test_tcrd_helper
     seccomp_resource
     cjson
     tev
-    uuid
     ${LIBNL3_LIBRARIES}
     ${LIBNL_ROUTE3_LIBRARIES}
     nftables
