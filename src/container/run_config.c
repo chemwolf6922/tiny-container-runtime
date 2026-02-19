@@ -246,6 +246,10 @@ static int parse_ports(const cJSON *root, container_args args, char **err_msg)
             if (inet_pton(AF_INET, ip_str, &host_ip) != 1)
                 return fail(err_msg, "ports[%d].hostIp '%s' is not a valid IPv4 address",
                             idx, ip_str);
+            if (ntohl(host_ip.s_addr) == INADDR_LOOPBACK)
+                return fail(err_msg, "ports[%d]: localhost port forwarding is not supported; "
+                            "access the service directly via the container's "
+                            "DNS name (tcr-<name>)", idx);
         }
 
         /* protocol (optional, default "tcp") */

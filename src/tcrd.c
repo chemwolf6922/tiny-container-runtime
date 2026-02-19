@@ -198,9 +198,14 @@ static int parse_tmpfs_mount(const char *spec, container_args args)
 /**
  * Parse -p port spec: [hostIP:]hostPort:containerPort[/protocol]
  * Returns 0 on success, -1 on parse error.
+ * On failure, *err_msg (if non-NULL) may be set to a heap-allocated
+ * error string.  Caller must free() it.
  */
-static int parse_port_forward(const char *spec, container_args args)
+static int parse_port_forward(const char *spec, container_args args,
+                              char **err_msg)
 {
+    if (err_msg) *err_msg = NULL;
+
     char *buf = strdup(spec);
     if (!buf) return -1;
 
@@ -249,6 +254,19 @@ static int parse_port_forward(const char *spec, container_args args)
         host_port = (uint16_t)atoi(sep1);
         container_port = (uint16_t)atoi(sep2);
     } else {
+        free(buf);
+        return -1;
+    }
+
+    /* Reject loopback — DNAT prerouting rules do not intercept lo traffic */
+    if (ntohl(host_ip.s_addr) == INADDR_LOOPBACK) {
+        if (err_msg) {
+            if (asprintf(err_msg,
+                    "localhost port forwarding is not supported; "
+                    "access the service directly via the container's "
+                    "DNS name (tcr-<name>)") < 0)
+                *err_msg = NULL;
+        }
         free(buf);
         return -1;
     }
@@ -431,11 +449,16 @@ static int handle_run(rpc_request_handle h, const cJSON *params)
             }
             i++;
         } else if (strcmp(a, "-p") == 0 && i + 1 < argc) {
-            if (parse_port_forward(argv[++i], args) != 0) {
+            char *pf_err = NULL;
+            if (parse_port_forward(argv[++i], args, &pf_err) != 0) {
                 container_args_free(args);
                 free(argv);
-                return reply_error(g_ctx.server, h, ERR_INVALID_ARG,
-                                   "bad -p format, expected [hostIP:]hostPort:containerPort[/proto]");
+                int rc = reply_error(g_ctx.server, h, ERR_INVALID_ARG,
+                                   pf_err ? pf_err
+                                          : "bad -p format, expected "
+                                            "[hostIP:]hostPort:containerPort[/proto]");
+                free(pf_err);
+                return rc;
             }
             i++;
         } else if (strcmp(a, "--network") == 0 && i + 1 < argc) {
