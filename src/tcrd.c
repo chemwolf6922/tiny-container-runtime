@@ -1222,12 +1222,35 @@ static void on_signal_readable(void *ctx)
     /* Remove the signal handler to break the event loop after cleanup. */
     tev_set_read_handler(g_ctx.tev, g_signal_fd, NULL, NULL);
 
-    /* Tear down the RPC server so no new requests come in.
-     * The event loop will exit once all remaining handlers drain. */
+    /* Tear down the RPC server so no new requests come in. */
     if (g_ctx.server) {
         rpc_server_free(g_ctx.server);
         g_ctx.server = NULL;
     }
+
+    /* Free the container manager — kills running containers and removes
+     * all pidfd / timer handlers from the event loop. */
+    if (g_ctx.ctr_manager) {
+        container_manager_free(g_ctx.ctr_manager);
+        g_ctx.ctr_manager = NULL;
+    }
+
+    /* Free the NAT network manager — tears down bridges, nftables rules,
+     * and removes DNS forwarder fd handlers from the event loop. */
+    if (g_ctx.nat_manager) {
+        nat_network_manager_free(g_ctx.nat_manager);
+        g_ctx.nat_manager = NULL;
+    }
+
+    /* Free the image manager — unmounts loop devices. */
+    if (g_ctx.img_manager) {
+        image_manager_free(g_ctx.img_manager, false);
+        g_ctx.img_manager = NULL;
+    }
+
+    /* Close the signal fd. */
+    close(g_signal_fd);
+    g_signal_fd = -1;
 }
 
 static int setup_signal_handling(tev_handle_t tev)
