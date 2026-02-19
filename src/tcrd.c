@@ -1126,7 +1126,7 @@ static int handle_help(rpc_request_handle h)
         "  -e KEY=VALUE         Environment variable (repeatable)\n"
         "  -v src:dst[:ro]      Bind mount (repeatable)\n"
         "  --tmpfs dst[:size]   tmpfs mount (repeatable)\n"
-        "  -p hPort:cPort[/pr]  Port forward (repeatable)\n"
+        "  -p [ip:]hP:cP[/pr]  Port forward (repeatable)\n"
         "  --network <name>     NAT network (default: tcr_default)\n"
         "  --no-network         Disable networking\n"
         "  --restart <policy>   no | unless-stopped | always\n"

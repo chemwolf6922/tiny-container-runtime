@@ -53,7 +53,7 @@ With `-d`: detached mode — the daemon fork+exec's crun, monitors via pidfd, an
 | `-e KEY=VALUE` | Set environment variable (repeatable) | `container_args_add_env()` |
 | `-v src:dst[:ro]` | Bind mount (repeatable) | `container_args_add_bind_mount()` |
 | `--tmpfs dst[:size]` | tmpfs mount (repeatable, size in bytes, default reasonable) | `container_args_add_tmpfs_mount()` |
-| `-p hostPort:containerPort[/tcp\|udp]` | Port forwarding (repeatable, default tcp) | `container_args_add_port_forwarding()` |
+| `-p [hostIP:]hostPort:containerPort[/tcp\|udp]` | Port forwarding (repeatable, default tcp) | `container_args_add_port_forwarding()` |
 | `--network <name>` | Join named NAT network (default: `tcr_default`) | `container_args_set_nat_network(name)` |
 | `--no-network` | No network (skip NAT network setup) | skip `container_args_set_nat_network()` |
 | `--restart <policy>` | Restart policy: `no`, `unless-stopped`, `always` (default: `no`) | `container_args_set_restart_policy()` |

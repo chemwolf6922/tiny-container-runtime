@@ -151,7 +151,7 @@ tcr rm <name_or_id>                       # Remove a container
 | `-e KEY=VALUE` | Set environment variable (repeatable) |
 | `-v src:dst[:ro]` | Bind mount (repeatable) |
 | `--tmpfs dst[:size]` | tmpfs mount (repeatable) |
-| `-p hostPort:containerPort[/tcp\|udp]` | Port forwarding (repeatable) |
+| `-p [hostIP:]hostPort:containerPort[/tcp\|udp]` | Port forwarding (repeatable) |
 | `--network <name>` | Join a named NAT network (default: `tcr_default`) |
 | `--no-network` | Disable networking |
 | `--restart <policy>` | Restart policy: `no`, `unless-stopped`, `always` |
