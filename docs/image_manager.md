@@ -68,7 +68,7 @@ image_manager_remove(mgr, img)
 | images_dir  | `char *`        | `<root>/images/`                                 |
 | lock_fd     | `int`           | File descriptor for `.images_lock` (flock)       |
 | images      | `list_head`     | Intrusive linked list of all images              |
-| digest_map  | `map_handle_t`  | `digest string → struct image_s*`                |
+| id_map      | `map_handle_t`  | `id string → struct image_s*`                    |
 | tag_map     | `map_handle_t`  | `"name:tag" → struct image_s*`                   |
 
 ### `struct image_s` (opaque, typedef `image` = pointer)
@@ -80,6 +80,7 @@ image_manager_remove(mgr, img)
 | uuid_dir         | `char *`   | `<root>/images/<uuid>/`                            |
 | mount_path       | `char *`   | `<root>/images/<uuid>/mnt/`                        |
 | runtime_info_path| `char *`   | Path to `image-runtime-info.json`                  |
+| id               | `char *`   | xxh64 hash of the digest (16-char hex string)      |
 | name             | `char *`   | `"registry/repository"` (e.g. `"docker.io/library/alpine"`) |
 | tag              | `char *`   | Image tag (may be NULL if superseded)              |
 | digest           | `char *`   | Content digest (e.g. `"sha256:..."`)               |
@@ -111,10 +112,12 @@ The lock is automatically released when the process exits or when `image_manager
 ### Dual map indexing
 
 Images are indexed by two maps for O(1) lookup:
-- **digest_map**: `digest → image` — used by `image_manager_find_by_digest()`
+- **id_map**: `id → image` — used by `image_manager_find_by_id()`
 - **tag_map**: `"name:tag" → image` — used by `image_manager_find_by_name()`
 
 Both maps use tev's `map_handle_t` (hash map with string keys + explicit key length).
+
+The image id is a 16-character hex string computed as the 64-bit xxHash of the digest. This provides a short, unique identifier suitable for display and command-line use, replacing the unwieldy full digest string.
 
 ### Tag collision handling
 
@@ -127,6 +130,7 @@ Each loaded image writes an `image-runtime-info.json` file outside the squashfs,
 ```json
 {
     "sqfsPath": "/path/to/image.sqfs",
+    "id": "a1b2c3d4e5f6g7h8",
     "digest": "sha256:...",
     "name": "docker.io/library/alpine",
     "tag": "latest",
@@ -163,8 +167,10 @@ Both `parse_image_info()` and `parse_runtime_info()` validate every mandatory fi
 | `image_manager_mount_image(mgr, img)` | Mount an unmounted image |
 | `image_manager_umount_image(mgr, img)` | Unmount a mounted image |
 | `image_manager_foreach_safe(mgr, fn, data)` | Iterate all images (safe to remove during iteration) |
-| `image_manager_find_by_digest(mgr, digest)` | O(1) lookup by digest |
+| `image_manager_find_by_id(mgr, id)` | O(1) lookup by id |
 | `image_manager_find_by_name(mgr, name, tag)` | O(1) lookup by name+tag |
+| `image_manager_find_by_id_or_name(mgr, ref)` | Convenience: try id, then parse name:tag |
+| `image_get_id(img)` | Get image id (xxh64 hex string) |
 | `image_get_name(img)` | Get `"registry/repository"` string |
 | `image_get_tag(img)` | Get tag (may be NULL) |
 | `image_get_created_at(img)` | Get creation timestamp |
@@ -182,7 +188,7 @@ Tests are in `test/test_image_manager.c`, run via `test/run_image_manager_test.s
 1. `test_new_and_free` — create and destroy manager
 2. `test_lock_exclusive` — second manager on same root fails
 3. `test_load_and_query` — load image, verify metadata and lookups
-4. `test_duplicate_digest_rejected` — loading same image twice fails
+4. `test_duplicate_id_rejected` — loading same image twice fails
 5. `test_mount_umount` — umount then remount an image
 6. `test_remove` — remove image, verify cleanup
 7. `test_foreach` — iterate over loaded images

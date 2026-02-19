@@ -231,8 +231,7 @@ Port forwarding parameters (host_ip, host_port, container_port, protocol) are st
 |---|---|
 | `container_args_new()` / `container_args_free(args)` | Create / free args builder |
 | `container_args_set_name(args, name)` | Set container name |
-| `container_args_set_image_by_name(args, name, tag)` | Set image by name+tag |
-| `container_args_set_image_by_digest(args, digest)` | Set image by digest (mutex with name) |
+| `container_args_set_image(args, ref)` | Set image reference (id or name:tag) |
 | `container_args_set_readonly(args, ro)` | Read-only rootfs (no overlay) |
 | `container_args_set_terminal_mode(args, tty)` | Terminal mode |
 | `container_args_set_detached(args, detached)` | Detached (daemon-managed) mode |

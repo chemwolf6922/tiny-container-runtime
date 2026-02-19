@@ -4,7 +4,7 @@ Build-machine script that pulls an OCI container image, unpacks it into a flat r
 
 **Location**: `host_tools/tcr-create-image.sh`
 
-**Dependencies**: `skopeo`, `umoci`, `mksquashfs` (squashfs-tools), `jq`
+**Dependencies**: `skopeo`, `umoci`, `mksquashfs` (squashfs-tools), `jq`, `xxhsum` (xxHash CLI)
 
 ## Usage
 
@@ -37,6 +37,7 @@ Examples:
 {
     "version": 1,
     "image": {
+        "id": "a1b2c3d4e5f6g7h8",
         "registry": "docker.io",
         "repository": "library/alpine",
         "tag": "latest",
@@ -49,6 +50,7 @@ Examples:
 ```
 
 - `version`: integer, incremented only on breaking schema changes.
+- `id`: 64-bit xxHash of the digest, as a 16-character hex string. Used as the primary image identifier.
 - `created`: Unix timestamp (seconds since epoch, always UTC).
 
 ## squashfs image contents

@@ -232,28 +232,6 @@ static void test_args_set_name(void)
     printf("  PASS: test_args_set_name\n");
 }
 
-static void test_args_image_mutual_exclusion(void)
-{
-    container_args args = container_args_new();
-    CHECK(args != NULL, "new");
-
-    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set_image_by_name");
-    CHECK(container_args_set_image_by_digest(args, "sha256:abc") == -1,
-          "set_image_by_digest should fail when name is set");
-
-    container_args_free(args);
-
-    args = container_args_new();
-    CHECK(args != NULL, "new");
-
-    CHECK(container_args_set_image_by_digest(args, "sha256:abc") == 0, "set_image_by_digest");
-    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == -1,
-          "set_image_by_name should fail when digest is set");
-
-    container_args_free(args);
-    printf("  PASS: test_args_image_mutual_exclusion\n");
-}
-
 static void test_args_setters(void)
 {
     container_args args = container_args_new();
@@ -338,7 +316,7 @@ static void test_create_container_readonly(void)
 
     container_args args = container_args_new();
     CHECK(args != NULL, "args_new");
-    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+    CHECK(container_args_set_image(args, "alpine:latest") == 0, "set image");
     CHECK(container_args_set_readonly(args, true) == 0, "set readonly");
     CHECK(container_args_set_name(args, "test-ro") == 0, "set name");
 
@@ -424,7 +402,7 @@ static void test_create_container_rw_overlay(void)
 
     container_args args = container_args_new();
     CHECK(args != NULL, "args_new");
-    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+    CHECK(container_args_set_image(args, "alpine:latest") == 0, "set image");
     CHECK(container_args_set_readonly(args, false) == 0, "set rw");
     CHECK(container_args_set_name(args, "test-rw") == 0, "set name");
     CHECK(container_args_set_detached(args, false) == 0, "set not detached");
@@ -485,7 +463,7 @@ static void test_create_container_with_options(void)
 
     container_args args = container_args_new();
     CHECK(args != NULL, "args_new");
-    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+    CHECK(container_args_set_image(args, "alpine:latest") == 0, "set image");
     CHECK(container_args_set_readonly(args, true) == 0, "set readonly");
     CHECK(container_args_set_terminal_mode(args, true) == 0, "set tty");
     CHECK(container_args_set_name(args, "test-opts") == 0, "set name");
@@ -579,7 +557,7 @@ static void test_create_no_image(void)
 
     /* Nonexistent image */
     args = container_args_new();
-    CHECK(container_args_set_image_by_name(args, "nonexistent", "v999") == 0, "set bad image");
+    CHECK(container_args_set_image(args, "nonexistent:v999") == 0, "set bad image");
     c = container_manager_create_container(mgr, args);
     CHECK(c == NULL, "create with nonexistent image should fail");
     container_args_free(args);
@@ -606,7 +584,7 @@ static void test_multiple_containers(void)
     {
         container_args args = container_args_new();
         CHECK(args != NULL, "args_new");
-        CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+        CHECK(container_args_set_image(args, "alpine:latest") == 0, "set image");
         CHECK(container_args_set_readonly(args, true) == 0, "set ro");
         snprintf(names[i], sizeof(names[i]), "multi-%d", i);
         CHECK(container_args_set_name(args, names[i]) == 0, "set name");
@@ -670,7 +648,7 @@ static void test_network_ref_count(void)
     {
         container_args args = container_args_new();
         CHECK(args != NULL, "args_new");
-        CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+        CHECK(container_args_set_image(args, "alpine:latest") == 0, "set image");
         CHECK(container_args_set_readonly(args, true) == 0, "set ro");
         char name[32];
         snprintf(name, sizeof(name), "netref-%d", i);
@@ -706,7 +684,7 @@ static void test_get_crun_args_interactive(void)
 
     container_args args = container_args_new();
     CHECK(args != NULL, "args_new");
-    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+    CHECK(container_args_set_image(args, "alpine:latest") == 0, "set image");
     CHECK(container_args_set_readonly(args, true) == 0, "set readonly");
     CHECK(container_args_set_name(args, "interactive-test") == 0, "set name");
     /* Not detached (interactive mode) */
@@ -743,7 +721,7 @@ static void test_get_crun_args_rejects_restart_policy(void)
 
     container_args args = container_args_new();
     CHECK(args != NULL, "args_new");
-    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+    CHECK(container_args_set_image(args, "alpine:latest") == 0, "set image");
     CHECK(container_args_set_readonly(args, true) == 0, "set readonly");
     CHECK(container_args_set_detached(args, false) == 0, "set not detached");
     CHECK(container_args_set_restart_policy(args, CONTAINER_RESTART_POLICY_ALWAYS) == 0,
@@ -769,7 +747,7 @@ static void test_start_rejects_non_detached(void)
     CHECK(mgr != NULL, "new");
 
     container_args args = container_args_new();
-    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+    CHECK(container_args_set_image(args, "alpine:latest") == 0, "set image");
     CHECK(container_args_set_readonly(args, true) == 0, "set readonly");
     CHECK(container_args_set_detached(args, false) == 0, "set not detached");
 
@@ -791,7 +769,7 @@ static void test_detached_container_lifecycle(void)
 
     container_args args = container_args_new();
     CHECK(args != NULL, "args_new");
-    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+    CHECK(container_args_set_image(args, "alpine:latest") == 0, "set image");
     CHECK(container_args_set_readonly(args, true) == 0, "set readonly");
     CHECK(container_args_set_detached(args, true) == 0, "set detached");
     CHECK(container_args_set_name(args, "detached-test") == 0, "set name");
@@ -832,7 +810,7 @@ static void test_manager_free_kills_detached(void)
 
     container_args args = container_args_new();
     CHECK(args != NULL, "args_new");
-    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+    CHECK(container_args_set_image(args, "alpine:latest") == 0, "set image");
     CHECK(container_args_set_readonly(args, true) == 0, "set readonly");
     CHECK(container_args_set_detached(args, true) == 0, "set detached");
     const char *cmd[] = { "/bin/sleep", "60" };
@@ -858,7 +836,7 @@ static void test_stop_not_running(void)
     CHECK(mgr != NULL, "new");
 
     container_args args = container_args_new();
-    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+    CHECK(container_args_set_image(args, "alpine:latest") == 0, "set image");
     CHECK(container_args_set_readonly(args, true) == 0, "set readonly");
 
     container c = container_manager_create_container(mgr, args);
@@ -874,28 +852,28 @@ static void test_stop_not_running(void)
     printf("  PASS: test_stop_not_running\n");
 }
 
-static void test_find_by_digest(void)
+static void test_find_by_id(void)
 {
     container_manager mgr = container_manager_new(g_tev, g_img_mgr, g_nat_mgr, CM_ROOT);
     CHECK(mgr != NULL, "new");
 
-    /* Find the image digest first */
+    /* Find the image id first */
     image img = image_manager_find_by_name(g_img_mgr, "alpine", "latest");
     CHECK(img != NULL, "find image");
-    const char *digest = image_get_digest(img);
-    CHECK(digest != NULL, "digest should not be NULL");
+    const char *id = image_get_id(img);
+    CHECK(id != NULL, "id should not be NULL");
 
     container_args args = container_args_new();
-    CHECK(container_args_set_image_by_digest(args, digest) == 0, "set image by digest");
+    CHECK(container_args_set_image(args, id) == 0, "set image by id");
     CHECK(container_args_set_readonly(args, true) == 0, "set readonly");
 
     container c = container_manager_create_container(mgr, args);
-    CHECK(c != NULL, "create by digest");
+    CHECK(c != NULL, "create by id");
     container_args_free(args);
 
     CHECK(container_remove(c) == 0, "remove");
     container_manager_free(mgr);
-    printf("  PASS: test_find_by_digest\n");
+    printf("  PASS: test_find_by_id\n");
 }
 
 static void test_null_safety(void)
@@ -936,7 +914,7 @@ static void test_meta_json_written(void)
 
     container_args args = container_args_new();
     CHECK(args != NULL, "args_new");
-    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+    CHECK(container_args_set_image(args, "alpine:latest") == 0, "set image");
     CHECK(container_args_set_readonly(args, true) == 0, "set readonly");
     CHECK(container_args_set_detached(args, true) == 0, "set detached");
     CHECK(container_args_set_name(args, "meta-test") == 0, "set name");
@@ -996,8 +974,8 @@ static void test_meta_json_written(void)
     CHECK(cJSON_IsNumber(j_timeout), "stopTimeoutMs is number");
     CHECK((int)j_timeout->valuedouble == 7000, "stopTimeoutMs = 7000");
 
-    cJSON *j_digest = cJSON_GetObjectItemCaseSensitive(meta, "imageDigest");
-    CHECK(cJSON_IsString(j_digest), "imageDigest is string");
+    cJSON *j_image_id = cJSON_GetObjectItemCaseSensitive(meta, "imageId");
+    CHECK(cJSON_IsString(j_image_id), "imageId is string");
 
     cJSON *j_bundle = cJSON_GetObjectItemCaseSensitive(meta, "bundlePath");
     CHECK(cJSON_IsString(j_bundle), "bundlePath is string");
@@ -1018,7 +996,7 @@ static void test_meta_json_not_restartable_ignored(void)
 
     container_args args = container_args_new();
     CHECK(args != NULL, "args_new");
-    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+    CHECK(container_args_set_image(args, "alpine:latest") == 0, "set image");
     CHECK(container_args_set_readonly(args, true) == 0, "set readonly");
     CHECK(container_args_set_detached(args, true) == 0, "set detached");
     CHECK(container_args_set_name(args, "no-restart") == 0, "set name");
@@ -1073,7 +1051,7 @@ static void test_restart_on_manager_recreate(void)
 
     container_args args = container_args_new();
     CHECK(args != NULL, "args_new");
-    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+    CHECK(container_args_set_image(args, "alpine:latest") == 0, "set image");
     CHECK(container_args_set_readonly(args, true) == 0, "set readonly");
     CHECK(container_args_set_detached(args, true) == 0, "set detached");
     CHECK(container_args_set_name(args, "restart-test") == 0, "set name");
@@ -1137,7 +1115,7 @@ static void test_unless_stopped_not_restored_after_stop(void)
 
     container_args args = container_args_new();
     CHECK(args != NULL, "args_new");
-    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+    CHECK(container_args_set_image(args, "alpine:latest") == 0, "set image");
     CHECK(container_args_set_readonly(args, true) == 0, "set readonly");
     CHECK(container_args_set_detached(args, true) == 0, "set detached");
     CHECK(container_args_set_name(args, "unless-stop-test") == 0, "set name");
@@ -1196,7 +1174,7 @@ static void test_always_restored_after_stop(void)
 
     container_args args = container_args_new();
     CHECK(args != NULL, "args_new");
-    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+    CHECK(container_args_set_image(args, "alpine:latest") == 0, "set image");
     CHECK(container_args_set_readonly(args, true) == 0, "set readonly");
     CHECK(container_args_set_detached(args, true) == 0, "set detached");
     CHECK(container_args_set_name(args, "always-stop-test") == 0, "set name");
@@ -1251,7 +1229,7 @@ static void test_hosts_entries_on_create_remove(void)
 
     container_args args = container_args_new();
     CHECK(args != NULL, "args_new");
-    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+    CHECK(container_args_set_image(args, "alpine:latest") == 0, "set image");
     CHECK(container_args_set_readonly(args, true) == 0, "set readonly");
     CHECK(container_args_set_name(args, "my-web-app") == 0, "set name");
     CHECK(container_args_set_nat_network(args, NULL) == 0, "set nat network");
@@ -1298,7 +1276,7 @@ static void test_hosts_name_equals_id(void)
 
     container_args args = container_args_new();
     CHECK(args != NULL, "args_new");
-    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+    CHECK(container_args_set_image(args, "alpine:latest") == 0, "set image");
     CHECK(container_args_set_readonly(args, true) == 0, "set readonly");
     /* No name set — will default to id */
     CHECK(container_args_set_nat_network(args, NULL) == 0, "set nat network");
@@ -1335,7 +1313,7 @@ static void test_hosts_no_network(void)
 
     container_args args = container_args_new();
     CHECK(args != NULL, "args_new");
-    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+    CHECK(container_args_set_image(args, "alpine:latest") == 0, "set image");
     CHECK(container_args_set_readonly(args, true) == 0, "set readonly");
     CHECK(container_args_set_name(args, "no-net-host-test") == 0, "set name");
     /* No nat network set */
@@ -1368,7 +1346,7 @@ static void test_dns_entries_via_dig(void)
 
     container_args args = container_args_new();
     CHECK(args != NULL, "args_new");
-    CHECK(container_args_set_image_by_name(args, "alpine", "latest") == 0, "set image");
+    CHECK(container_args_set_image(args, "alpine:latest") == 0, "set image");
     CHECK(container_args_set_readonly(args, true) == 0, "set readonly");
     CHECK(container_args_set_name(args, "dig-test-app") == 0, "set name");
     CHECK(container_args_set_nat_network(args, NULL) == 0, "set nat network");
@@ -1468,7 +1446,6 @@ int main(int argc, char **argv)
     /* --- container_args tests (no root needed for these) --- */
     test_args_new_free();
     test_args_set_name();
-    test_args_image_mutual_exclusion();
     test_args_setters();
 
     /* --- container_manager tests --- */
@@ -1479,7 +1456,7 @@ int main(int argc, char **argv)
     test_create_container_rw_overlay();
     test_create_container_with_options();
     test_multiple_containers();
-    test_find_by_digest();
+    test_find_by_id();
     test_get_crun_args_interactive();
     test_get_crun_args_rejects_restart_policy();
     test_start_rejects_non_detached();

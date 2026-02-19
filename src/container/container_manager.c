@@ -51,7 +51,7 @@
 #define JKEY_STOP_TIMEOUT_MS    "stopTimeoutMs"
 #define JKEY_EXPLICITLY_STOPPED "explicitlyStopped"
 #define JKEY_BUNDLE_PATH        "bundlePath"
-#define JKEY_IMAGE_DIGEST       "imageDigest"
+#define JKEY_IMAGE_ID           "imageId"
 #define JKEY_NAT_NETWORK_NAME   "natNetworkName"
 #define JKEY_NETNS_NAME         "netnsName"
 #define JKEY_ALLOCATED_IP       "allocatedIp"
@@ -96,10 +96,8 @@ struct container_args_s
 {
     char *name;
 
-    /* image selection (mutually exclusive) */
-    char *image_digest;
-    char *image_name;
-    char *image_tag;
+    /* image reference (id or "name:tag") */
+    char *image_ref;
 
     bool readonly;
     bool is_tty;
@@ -341,12 +339,12 @@ static int write_container_meta(struct container_s *c)
     cJSON_AddBoolToObject(meta, JKEY_EXPLICITLY_STOPPED, c->explicitly_stopped);
     cJSON_AddStringToObject(meta, JKEY_BUNDLE_PATH, c->bundle_path);
 
-    /* Image digest for restoration */
+    /* Image id for restoration */
     if (c->img)
     {
-        const char *digest = image_get_digest(c->img);
-        if (digest)
-            cJSON_AddStringToObject(meta, JKEY_IMAGE_DIGEST, digest);
+        const char *id = image_get_id(c->img);
+        if (id)
+            cJSON_AddStringToObject(meta, JKEY_IMAGE_ID, id);
     }
 
     /* Network fields */
@@ -538,9 +536,7 @@ void container_args_free(container_args args)
     struct container_args_s *a = args;
 
     free(a->name);
-    free(a->image_digest);
-    free(a->image_name);
-    free(a->image_tag);
+    free(a->image_ref);
 
     for (size_t i = 0; i < a->command_count; i++)
         free(a->command[i]);
@@ -578,34 +574,12 @@ int container_args_set_name(container_args args, const char *name)
     return args->name ? 0 : -1;
 }
 
-int container_args_set_image_by_digest(container_args args, const char *digest)
+int container_args_set_image(container_args args, const char *ref)
 {
-    if (!args || !digest) return -1;
-    if (args->image_name)
-    {
-        fprintf(stderr, "container_args: cannot set digest when name+tag is already set\n");
-        return -1;
-    }
-    free(args->image_digest);
-    args->image_digest = strdup(digest);
-    return args->image_digest ? 0 : -1;
-}
-
-int container_args_set_image_by_name(container_args args, const char *name, const char *tag)
-{
-    if (!args || !name) return -1;
-    if (args->image_digest)
-    {
-        fprintf(stderr, "container_args: cannot set name+tag when digest is already set\n");
-        return -1;
-    }
-    free(args->image_name);
-    free(args->image_tag);
-    args->image_name = strdup(name);
-    args->image_tag = tag ? strdup(tag) : NULL;
-    if (!args->image_name) return -1;
-    if (tag && !args->image_tag) return -1;
-    return 0;
+    if (!args || !ref) return -1;
+    free(args->image_ref);
+    args->image_ref = strdup(ref);
+    return args->image_ref ? 0 : -1;
 }
 
 int container_args_set_readonly(container_args args, bool readonly)
@@ -1076,24 +1050,24 @@ static struct container_s *restore_container(
     cJSON *j_readonly   = cJSON_GetObjectItemCaseSensitive(meta, JKEY_READONLY);
     cJSON *j_timeout    = cJSON_GetObjectItemCaseSensitive(meta, JKEY_STOP_TIMEOUT_MS);
     cJSON *j_bundle     = cJSON_GetObjectItemCaseSensitive(meta, JKEY_BUNDLE_PATH);
-    cJSON *j_digest     = cJSON_GetObjectItemCaseSensitive(meta, JKEY_IMAGE_DIGEST);
+    cJSON *j_image_id   = cJSON_GetObjectItemCaseSensitive(meta, JKEY_IMAGE_ID);
     cJSON *j_net_name   = cJSON_GetObjectItemCaseSensitive(meta, JKEY_NAT_NETWORK_NAME);
     cJSON *j_netns      = cJSON_GetObjectItemCaseSensitive(meta, JKEY_NETNS_NAME);
     cJSON *j_alloc_ip   = cJSON_GetObjectItemCaseSensitive(meta, JKEY_ALLOCATED_IP);
     cJSON *j_pf_arr     = cJSON_GetObjectItemCaseSensitive(meta, JKEY_PORT_FORWARDS);
 
-    if (!cJSON_IsString(j_id) || !cJSON_IsString(j_name) || !cJSON_IsString(j_digest))
+    if (!cJSON_IsString(j_id) || !cJSON_IsString(j_name) || !cJSON_IsString(j_image_id))
     {
         cJSON_Delete(meta);
         return NULL;
     }
 
     /* Find and mount image */
-    image img = image_manager_find_by_digest(mgr->img_manager, j_digest->valuestring);
+    image img = image_manager_find_by_id(mgr->img_manager, j_image_id->valuestring);
     if (!img)
     {
-        fprintf(stderr, "container_manager: restore '%s': image with digest '%s' not found\n",
-                j_id->valuestring, j_digest->valuestring);
+        fprintf(stderr, "container_manager: restore '%s': image with id '%s' not found\n",
+                j_id->valuestring, j_image_id->valuestring);
         cJSON_Delete(meta);
         return NULL;
     }
@@ -1486,10 +1460,8 @@ container container_manager_create_container(
 
     /* ── Resolve image ── */
     image img = NULL;
-    if (a->image_digest)
-        img = image_manager_find_by_digest(mgr->img_manager, a->image_digest);
-    else if (a->image_name)
-        img = image_manager_find_by_name(mgr->img_manager, a->image_name, a->image_tag);
+    if (a->image_ref)
+        img = image_manager_find_by_id_or_name(mgr->img_manager, a->image_ref);
     else
     {
         fprintf(stderr, "container_manager: no image specified\n");

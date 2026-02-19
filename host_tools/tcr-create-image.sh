@@ -38,7 +38,7 @@ die() { echo "error: $*" >&2; exit 1; }
 
 check_deps() {
     local missing=()
-    for cmd in skopeo umoci mksquashfs jq; do
+    for cmd in skopeo umoci mksquashfs jq xxhsum; do
         if ! command -v "$cmd" &>/dev/null; then
             missing+=("$cmd")
         fi
@@ -190,6 +190,9 @@ skopeo copy "docker://$IMAGE" "oci:$OCI_DIR:$TAG"
 DIGEST=$(skopeo inspect "oci:$OCI_DIR:$TAG" | jq -r '.Digest // "unknown"')
 ARCH=$(skopeo inspect "oci:$OCI_DIR:$TAG" | jq -r '.Architecture // "unknown"')
 
+# Compute image ID: 64-bit xxHash of the digest, as a hex string
+IMAGE_ID=$(echo -n "$DIGEST" | xxhsum -H64 | cut -d' ' -f1)
+
 # ── Step 2: Unpack to bundle ────────────────────────────────────────────────
 
 echo "==> Unpacking OCI image to bundle..."
@@ -202,6 +205,7 @@ cat > "$STAGE_DIR/image-info.json" <<EOF
 {
     "version": 1,
     "image": {
+        "id": "$IMAGE_ID",
         "registry": "$REGISTRY",
         "repository": "$REPO",
         "tag": "$TAG",

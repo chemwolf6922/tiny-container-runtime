@@ -60,9 +60,9 @@ With `-d`: detached mode — the daemon fork+exec's crun, monitors via pidfd, an
 
 #### Image reference
 
-The `<image>` positional argument is resolved in order:
-1. If it looks like a digest (`sha256:...`), use `image_manager_find_by_digest()`
-2. Otherwise, parse as `name:tag` (default tag: `latest`), use `image_manager_find_by_name()`
+The `<image>` positional argument is resolved via `image_manager_find_by_id_or_name()`:
+1. Try as an image id
+2. If not found, parse as `name:tag` (default tag: `latest`), try by name
 
 #### Response
 
@@ -128,29 +128,29 @@ Load a squashfs image from the given path. Relative paths are resolved against t
 
 Maps to `image_manager_load(mgr, resolved_path)`.
 
-Returns `{ "exitCode": 0, "stdOut": "<digest>\n" }` on success.
+Returns `{ "exitCode": 0, "stdOut": "<id>\n" }` on success.
 
 ### `tcr image ls`
 
 List all loaded images.
 
-Output table with columns: `DIGEST`, `NAME`, `TAG`, `ARCH`, `MOUNTED`
+Output table with columns: `IMAGE ID`, `NAME`, `TAG`, `ARCH`, `MOUNTED`
 
 ```
-DIGEST               NAME                          TAG     ARCH   MOUNTED
-sha256:abc123...     docker.io/library/alpine      latest  amd64  yes
-sha256:def456...     docker.io/library/nginx       1.25    arm64  yes
+IMAGE ID         NAME                          TAG     ARCH   MOUNTED
+a1b2c3d4e5f6g7h8 docker.io/library/alpine      latest  amd64  yes
+f8e7d6c5b4a39281 docker.io/library/nginx       1.25    arm64  yes
 ```
 
 ### `tcr image rm <ref>`
 
-Remove an image. `<ref>` can be a digest (`sha256:...`) or `name:tag`.
+Remove an image. `<ref>` can be an image id or `name:tag`. The id is tried first, then name:tag.
 
 Fails if any container is using the image (`container_manager_get_image_ref_count() > 0`).
 
 Maps to `image_manager_remove(mgr, img)`.
 
-Returns `{ "exitCode": 0, "stdOut": "<digest>\n" }` on success.
+Returns `{ "exitCode": 0, "stdOut": "<id>\n" }` on success.
 
 ---
 

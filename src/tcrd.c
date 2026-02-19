@@ -400,22 +400,14 @@ static int handle_run(rpc_request_handle h, const cJSON *params)
         return reply_error(g_ctx.server, h, ERR_INVALID_ARG, "no image specified");
     }
 
-    /* Resolve image */
-    if (strncmp(image_ref, "sha256:", 7) == 0) {
-        container_args_set_image_by_digest(args, image_ref);
-    } else {
-        /* Parse name:tag */
-        char *buf = strdup(image_ref);
-        char *colon = strrchr(buf, ':');
-        const char *name = buf;
-        const char *tag = "latest";
-        if (colon) {
-            *colon = '\0';
-            tag = colon + 1;
-        }
-        container_args_set_image_by_name(args, name, tag);
-        free(buf);
+    /* Resolve image: try by id first, then by name:tag */
+    image img_check = image_manager_find_by_id_or_name(g_ctx.img_manager, image_ref);
+    if (!img_check) {
+        container_args_free(args);
+        free(argv);
+        return reply_error(g_ctx.server, h, ERR_IMAGE_NOT_FOUND, "image not found");
     }
+    container_args_set_image(args, image_ref);
 
     container_args_set_detached(args, detached);
 
@@ -649,7 +641,7 @@ static int handle_image_load(rpc_request_handle h, int argc, const char **argv,
         return reply_error(g_ctx.server, h, ERR_INTERNAL, "failed to load image");
 
     char *out = NULL;
-    if (asprintf(&out, "%s\n", image_get_digest(img)) < 0)
+    if (asprintf(&out, "%s\n", image_get_id(img)) < 0)
         out = NULL;
     int rc = reply_output(g_ctx.server, h, 0, out ? out : "", NULL);
     free(out);
@@ -687,18 +679,14 @@ static void image_ls_visitor(image img, void *user_data)
 {
     struct image_ls_ctx *ctx = user_data;
 
-    const char *digest = image_get_digest(img);
+    const char *id = image_get_id(img);
     const char *name = image_get_name(img);
     const char *tag = image_get_tag(img);
     bool mounted = image_get_mounted(img);
 
-    /* Truncate digest for display: show first 19 chars (sha256: + 12 hex) */
-    char digest_short[20];
-    snprintf(digest_short, sizeof(digest_short), "%s", digest ? digest : "");
-
     char *line = NULL;
-    if (asprintf(&line, "%-19s %-30s %-10s %s\n",
-             digest_short,
+    if (asprintf(&line, "%-16s %-30s %-10s %s\n",
+             id ? id : "",
              name ? name : "",
              tag ? tag : "<none>",
              mounted ? "yes" : "no") < 0)
@@ -712,7 +700,7 @@ static void image_ls_visitor(image img, void *user_data)
 static int handle_image_ls(rpc_request_handle h)
 {
     struct image_ls_ctx ctx = {0};
-    image_ls_append(&ctx, "DIGEST              NAME                           TAG        MOUNTED\n");
+    image_ls_append(&ctx, "IMAGE ID         NAME                           TAG        MOUNTED\n");
 
     image_manager_foreach_safe(g_ctx.img_manager, image_ls_visitor, &ctx);
 
@@ -729,25 +717,13 @@ static int handle_image_rm(rpc_request_handle h, int argc, const char **argv)
 {
     if (argc < 1)
         return reply_error(g_ctx.server, h, ERR_INVALID_ARG,
-                           "usage: image rm <digest_or_name:tag>");
+                           "usage: image rm <id_or_name:tag>");
 
     const char *ref = argv[0];
     image img = NULL;
 
-    if (strncmp(ref, "sha256:", 7) == 0) {
-        img = image_manager_find_by_digest(g_ctx.img_manager, ref);
-    } else {
-        char *buf = strdup(ref);
-        char *colon = strrchr(buf, ':');
-        const char *name = buf;
-        const char *tag = "latest";
-        if (colon) {
-            *colon = '\0';
-            tag = colon + 1;
-        }
-        img = image_manager_find_by_name(g_ctx.img_manager, name, tag);
-        free(buf);
-    }
+    /* Try by id first, then by name:tag */
+    img = image_manager_find_by_id_or_name(g_ctx.img_manager, ref);
 
     if (!img)
         return reply_error(g_ctx.server, h, ERR_IMAGE_NOT_FOUND, "image not found");
@@ -760,9 +736,9 @@ static int handle_image_rm(rpc_request_handle h, int argc, const char **argv)
         return reply_error(g_ctx.server, h, ERR_RESOURCE_IN_USE, msg);
     }
 
-    const char *digest = image_get_digest(img);
+    const char *id = image_get_id(img);
     char *out = NULL;
-    if (asprintf(&out, "%s\n", digest ? digest : "") < 0)
+    if (asprintf(&out, "%s\n", id ? id : "") < 0)
         out = NULL;
 
     image_manager_remove(g_ctx.img_manager, img);

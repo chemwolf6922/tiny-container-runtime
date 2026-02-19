@@ -84,23 +84,16 @@ void container_args_free(container_args args);
 int container_args_set_name(container_args args, const char* name);
 
 /**
- * @brief Set the target image digest. Cannot coexist with image name+tag.
+ * @brief Set the target image reference (id or "name:tag").
+ *
+ * The reference is resolved at container creation time: first tried as an
+ * image id, then parsed as "name:tag" (tag defaults to "latest" if omitted).
  * 
  * @param args The container arguments to modify.
- * @param digest The digest of the image to use.
+ * @param ref The image reference string.
  * @return int 0 on success, -1 if failed.
  */
-int container_args_set_image_by_digest(container_args args, const char* digest);
-
-/**
- * @brief Set the target image by name and tag. Cannot coexist with image digest.
- * 
- * @param args The container arguments to modify.
- * @param name The name of the image.
- * @param tag The tag of the image.
- * @return int 0 on success, -1 if failed.
- */
-int container_args_set_image_by_name(container_args args, const char* name, const char* tag);
+int container_args_set_image(container_args args, const char* ref);
 
 /**
  * @brief Set the container to read-only mode.

@@ -55,6 +55,7 @@ struct image_s
     char *runtime_info_path;/* <root>/images/<uuid>/image-runtime-info.json */
 
     /* loaded from image-info.json inside the squashfs */
+    char *id;             /* xxh64 hash of the digest, hex string */
     char *name;           /* "registry/repository" */
     char *tag;
     char *digest;
@@ -74,7 +75,7 @@ struct image_manager_s
     char *images_dir;       /* <root>/images/ */
 
     struct list_head images;
-    map_handle_t digest_map;    /* digest string -> struct image_s* */
+    map_handle_t id_map;        /* id string -> struct image_s* */
     map_handle_t tag_map;       /* "name:tag" -> struct image_s* */
 };
 
@@ -159,6 +160,7 @@ static void image_free(image img)
     if (img->mount_path)       free(img->mount_path);
     if (img->runtime_info_path) free(img->runtime_info_path);
     if (img->loop_dev)         free(img->loop_dev);
+    if (img->id)               free(img->id);
     if (img->name)             free(img->name);
     if (img->tag)              free(img->tag);
     if (img->digest)           free(img->digest);
@@ -236,6 +238,7 @@ static int write_runtime_info(const struct image_s *img)
     if (!root) return -1;
 
     cJSON_AddStringToObject(root, "sqfsPath", img->sqfs_path);
+    cJSON_AddStringToObject(root, "id", img->id);
     cJSON_AddStringToObject(root, "digest", img->digest);
     cJSON_AddStringToObject(root, "name", img->name);
     if (img->tag)
@@ -290,6 +293,10 @@ static int parse_image_info(image img)
     if (asprintf(&img->name, "%s/%s", reg, repo) < 0)
         goto bad;
 
+    j = cJSON_GetObjectItem(image_obj, "id");
+    if (!cJSON_IsString(j)) goto bad;
+    img->id = strdup(j->valuestring);
+
     j = cJSON_GetObjectItem(image_obj, "tag");
     if (!cJSON_IsString(j)) goto bad;
     img->tag = strdup(j->valuestring);
@@ -336,6 +343,10 @@ static int parse_runtime_info(image img)
     if (!cJSON_IsString(j)) goto bad;
     img->sqfs_path = strdup(j->valuestring);
 
+    j = cJSON_GetObjectItem(root, "id");
+    if (!cJSON_IsString(j)) goto bad;
+    img->id = strdup(j->valuestring);
+
     j = cJSON_GetObjectItem(root, "digest");
     if (!cJSON_IsString(j)) goto bad;
     img->digest = strdup(j->valuestring);
@@ -373,10 +384,10 @@ static int manager_register_image(image_manager mgr, image img)
 {
     if (!mgr || !img) return -1;
 
-    /* add to digest map */
-    if (img->digest && img->digest[0])
+    /* add to id map */
+    if (img->id && img->id[0])
     {
-        void *ret = map_add(mgr->digest_map, img->digest, strlen(img->digest), img);
+        void *ret = map_add(mgr->id_map, img->id, strlen(img->id), img);
         if (!ret) return -1;
     }
 
@@ -387,19 +398,19 @@ static int manager_register_image(image_manager mgr, image img)
         char *key = make_tag_key(img->name, img->tag, &key_len);
         if (!key)
         {
-            /* roll back digest map insertion */
-            if (img->digest && img->digest[0])
-                map_remove(mgr->digest_map, img->digest, strlen(img->digest));
+            /* roll back id map insertion */
+            if (img->id && img->id[0])
+                map_remove(mgr->id_map, img->id, strlen(img->id));
             return -1;
         }
 
         void *old = map_add(mgr->tag_map, key, key_len, img);
         if (!old)
         {
-            /* OOM — roll back digest map insertion */
+            /* OOM — roll back id map insertion */
             free(key);
-            if (img->digest && img->digest[0])
-                map_remove(mgr->digest_map, img->digest, strlen(img->digest));
+            if (img->id && img->id[0])
+                map_remove(mgr->id_map, img->id, strlen(img->id));
             return -1;
         }
 
@@ -425,10 +436,10 @@ static void manager_unregister_image(image_manager mgr, image img)
 {
     if (!mgr || !img) return;
 
-    /* remove from digest map */
-    if (img->digest && img->digest[0])
+    /* remove from id map */
+    if (img->id && img->id[0])
     {
-        map_remove(mgr->digest_map, img->digest, strlen(img->digest));
+        map_remove(mgr->id_map, img->id, strlen(img->id));
     }
 
     /* remove from tag map */
@@ -525,6 +536,7 @@ static int manager_scan_existing(image_manager mgr)
             /* free fields that parse_image_info will overwrite */
             if (img->name)   { free(img->name);   img->name = NULL; }
             if (img->tag)    { free(img->tag);    img->tag = NULL; }
+            if (img->id)     { free(img->id);     img->id = NULL; }
             if (img->digest) { free(img->digest); img->digest = NULL; }
             if (img->arch)   { free(img->arch);   img->arch = NULL; }
 
@@ -550,12 +562,12 @@ static int manager_scan_existing(image_manager mgr)
             img->bundle_path = NULL;
         }
 
-        /* check for digest collision (should not happen but be safe) */
-        if (img->digest && img->digest[0] &&
-            map_has(mgr->digest_map, img->digest, strlen(img->digest)))
+        /* check for id collision (should not happen but be safe) */
+        if (img->id && img->id[0] &&
+            map_has(mgr->id_map, img->id, strlen(img->id)))
         {
-            fprintf(stderr, "image_manager: duplicate digest %s in %s, skipping\n",
-                    img->digest, ent->d_name);
+            fprintf(stderr, "image_manager: duplicate id %s in %s, skipping\n",
+                    img->id, ent->d_name);
             image_free(img);
             continue;
         }
@@ -607,9 +619,9 @@ image_manager image_manager_new(const char *root_path)
     if (mkdir_if_not_exist(mgr->images_dir) != 0) goto fail;
 
     /* create maps */
-    mgr->digest_map = map_create();
+    mgr->id_map = map_create();
     mgr->tag_map = map_create();
-    if (!mgr->digest_map || !mgr->tag_map) goto fail;
+    if (!mgr->id_map || !mgr->tag_map) goto fail;
 
     /* scan existing images */
     manager_scan_existing(mgr);
@@ -617,7 +629,7 @@ image_manager image_manager_new(const char *root_path)
     return mgr;
 
 fail:
-    if (mgr->digest_map) map_delete(mgr->digest_map, NULL, NULL);
+    if (mgr->id_map) map_delete(mgr->id_map, NULL, NULL);
     if (mgr->tag_map) map_delete(mgr->tag_map, NULL, NULL);
     if (mgr->images_dir) free(mgr->images_dir);
     if (mgr->root_path)  free(mgr->root_path);
@@ -645,7 +657,7 @@ void image_manager_free(image_manager manager, bool umount_all)
         image_free(img);
     }
 
-    map_delete(mgr->digest_map, NULL, NULL);
+    map_delete(mgr->id_map, NULL, NULL);
     map_delete(mgr->tag_map, NULL, NULL);
 
     if (mgr->images_dir) free(mgr->images_dir);
@@ -729,12 +741,12 @@ image image_manager_load(image_manager manager, const char *path)
         goto fail_umount;
     }
 
-    /* check for duplicate digest */
-    if (img->digest && img->digest[0] &&
-        map_has(mgr->digest_map, img->digest, strlen(img->digest)))
+    /* check for duplicate id */
+    if (img->id && img->id[0] &&
+        map_has(mgr->id_map, img->id, strlen(img->id)))
     {
-        fprintf(stderr, "image_manager: image with digest %s is already loaded\n",
-                img->digest);
+        fprintf(stderr, "image_manager: image with id %s is already loaded\n",
+                img->id);
         goto fail_umount;
     }
 
@@ -824,6 +836,7 @@ int image_manager_mount_image(image_manager manager, image img)
     im->mounted = true;
 
     /* re-parse image-info.json — free old metadata that will be overwritten */
+    if (im->id)          { free(im->id);          im->id = NULL; }
     if (im->name)        { free(im->name);        im->name = NULL; }
     if (im->tag)         { free(im->tag);         im->tag = NULL; }
     if (im->digest)      { free(im->digest);      im->digest = NULL; }
@@ -867,12 +880,12 @@ int image_manager_foreach_safe(image_manager manager, image_manager_foreach_fn f
     return 0;
 }
 
-image image_manager_find_by_digest(image_manager manager, const char *digest)
+image image_manager_find_by_id(image_manager manager, const char *id)
 {
-    if (!manager || !digest) return NULL;
+    if (!manager || !id) return NULL;
     image_manager mgr = manager;
 
-    return map_get(mgr->digest_map, (void *)digest, strlen(digest));
+    return map_get(mgr->id_map, (void *)id, strlen(id));
 }
 
 image image_manager_find_by_name(image_manager manager,
@@ -909,6 +922,32 @@ image image_manager_find_by_name(image_manager manager,
     return result;
 }
 
+image image_manager_find_by_id_or_name(image_manager manager, const char *ref)
+{
+    if (!manager || !ref) return NULL;
+
+    /* Try by id first */
+    image img = image_manager_find_by_id(manager, ref);
+    if (img) return img;
+
+    /* Parse ref as name:tag */
+    char *buf = strdup(ref);
+    if (!buf) return NULL;
+
+    char *colon = strrchr(buf, ':');
+    const char *name = buf;
+    const char *tag = NULL;
+    if (colon)
+    {
+        *colon = '\0';
+        tag = colon + 1;
+    }
+
+    img = image_manager_find_by_name(manager, name, tag);
+    free(buf);
+    return img;
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Image getters                                                              */
 /* -------------------------------------------------------------------------- */
@@ -926,6 +965,11 @@ const char *image_get_tag(const image img)
 uint64_t image_get_created_at(const image img)
 {
     return img ? img->created : 0;
+}
+
+const char *image_get_id(const image img)
+{
+    return img ? img->id : NULL;
 }
 
 const char *image_get_digest(const image img)

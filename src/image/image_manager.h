@@ -75,13 +75,13 @@ typedef void (*image_manager_foreach_fn)(image img, void* user_data);
 int image_manager_foreach_safe(image_manager manager, image_manager_foreach_fn fn, void* user_data);
 
 /**
- * @brief Find an image by its digest.
+ * @brief Find an image by its id (xxh64 hash of the digest in hex).
  * 
  * @param manager The image manager to use for finding the image.
- * @param digest The digest of the image to find.
+ * @param id The id of the image to find.
  * @return image A reference to the found image. NULL if not found.
  */
-image image_manager_find_by_digest(image_manager manager, const char* digest);
+image image_manager_find_by_id(image_manager manager, const char* id);
 
 /**
  * @brief Find an image by its name and tag.
@@ -96,6 +96,18 @@ image image_manager_find_by_digest(image_manager manager, const char* digest);
  * @return image A reference to the found image. NULL if not found.
  */
 image image_manager_find_by_name(image_manager manager, const char* name, const char* tag);
+
+/**
+ * @brief Find an image by id or name:tag reference.
+ *
+ * First tries to find the image by id. If not found, parses the reference as
+ * "name:tag" (defaulting tag to "latest" if omitted) and searches by name.
+ *
+ * @param manager The image manager to use for finding the image.
+ * @param ref The image reference (id or "name:tag").
+ * @return image A reference to the found image. NULL if not found.
+ */
+image image_manager_find_by_id_or_name(image_manager manager, const char* ref);
 
 /**
  * @brief Get the name of the given image.
@@ -120,6 +132,14 @@ const char* image_get_tag(const image img);
  * @return uint64_t The creation time of the image.
  */
 uint64_t image_get_created_at(const image img);
+
+/**
+ * @brief Get the id of the given image (xxh64 hash of the digest in hex).
+ * 
+ * @param img The image to get the id from.
+ * @return const char* The id of the image.
+ */
+const char* image_get_id(const image img);
 
 /**
  * @brief Get the digest of the given image.

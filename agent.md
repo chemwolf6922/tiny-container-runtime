@@ -39,6 +39,7 @@ The central daemon that ties all subsystems together. Single-process, event-driv
 - **Signal handling** — SIGINT/SIGTERM via signalfd, integrated into tev event loop for graceful shutdown
 - **Supported commands**: `run`, `ps`, `stop`, `kill`, `rm`, `image load/ls/rm`, `network ls/rm`, `help`
 - **Default networking** — containers get a NAT network (`tcr_default`) unless `--no-network` or `--network <name>` is specified
+- **Image identification** — images are indexed by a 16-character hex id (xxh64 hash of the OCI digest), computed at build time by `tcr-create-image.sh`
 - **Lock file** — `/var/run/tcrd.lock` with `flock(LOCK_EX|LOCK_NB)` ensures only one instance runs; PID written for diagnostics
 - **Error codes** — defined in `daemon-constants.h` (1–7), matching [docs/tcr_commands.md](docs/tcr_commands.md)
 
@@ -50,7 +51,7 @@ Detail design: [docs/tcr_commands.md](docs/tcr_commands.md)
 
 Build-machine script: pulls an OCI image, unpacks it into a flat rootfs bundle, and packages it into a squashfs file (zstd compressed).
 
-Uses `skopeo` → `umoci` → `mksquashfs` pipeline. Generates `image-info.json` (v1) metadata inside the squashfs.
+Uses `skopeo` → `umoci` → `mksquashfs` pipeline. Generates `image-info.json` (v1) metadata inside the squashfs, including a short image id (xxh64 hash of the digest).
 
 Detail design: [docs/create_image.md](docs/create_image.md)
 
@@ -84,9 +85,9 @@ nftables-based DNAT port forwarding. Creates rules to forward `listen_ip:listen_
 
 ## Image Manager (`src/image/`)
 
-Manages squashfs container images on the target device: loading, mounting via loop device, querying by digest or name+tag, unmounting, and removal. Persistent across restarts — writes `image-runtime-info.json` per image and rebuilds state on startup.
+Manages squashfs container images on the target device: loading, mounting via loop device, querying by id or name+tag, unmounting, and removal. Persistent across restarts — writes `image-runtime-info.json` per image and rebuilds state on startup.
 
-- O(1) lookup by digest or `name:tag` using tev hash maps
+- O(1) lookup by id or `name:tag` using tev hash maps
 - Loop device management with `LO_FLAGS_AUTOCLEAR`
 - Strict JSON validation, mmap-based file loading
 - Tag collision handling: new image takes the tag, old image keeps running without tag
