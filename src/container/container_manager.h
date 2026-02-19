@@ -202,6 +202,22 @@ int container_args_set_command(container_args args, size_t argc, const char* con
 int container_args_set_nat_network(container_args args, const char* nat_network_name);
 
 /**
+ * @brief Get the image reference from the container arguments.
+ * 
+ * @param args The container arguments to query.
+ * @return const char* The image reference string (borrowed). NULL if not set.
+ */
+const char* container_args_get_image(container_args args);
+
+/**
+ * @brief Get whether the container is set to detached mode.
+ * 
+ * @param args The container arguments to query.
+ * @return bool True if detached mode is set.
+ */
+bool container_args_get_detached(container_args args);
+
+/**
  * @brief Add a port forwarding rule to the container.
  * 
  * @param args The container arguments to modify.

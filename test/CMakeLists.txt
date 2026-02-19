@@ -216,6 +216,7 @@ add_executable(test_tcrd_helper
     ../src/rpc/rpc_server.c
     ../src/container/container_manager.c
     ../src/container/crun_config.c
+    ../src/container/run_config.c
     ../src/image/image_manager.c
     ../src/network/dns_forwarder.c
     ../src/network/nat_network_manager.c
@@ -263,3 +264,37 @@ target_compile_definitions(test_tcr_helper PRIVATE
 )
 
 target_link_libraries(test_tcr_helper tev cjson)
+
+# --------------------------------------------------------------------------
+# test_run_config: unit tests for run_config JSON parser (no root needed)
+# --------------------------------------------------------------------------
+add_executable(test_run_config
+    test_run_config.c
+    ../src/container/run_config.c
+    ../src/container/container_manager.c
+    ../src/container/crun_config.c
+    ../src/image/image_manager.c
+    ../src/network/dns_forwarder.c
+    ../src/network/nat_network_manager.c
+    ../src/network/nat_network.c
+    ../src/network/nft_helper.c
+    ../src/network/port_forwarder.c
+    ../src/common/bitmap.c
+    ../src/common/utils.c
+)
+
+target_include_directories(test_run_config PRIVATE
+    ../src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${LIBNL3_INCLUDE_DIRS}
+    ${LIBNL_ROUTE3_INCLUDE_DIRS}
+)
+
+target_link_libraries(test_run_config
+    seccomp_resource
+    cjson
+    tev
+    ${LIBNL3_LIBRARIES}
+    ${LIBNL_ROUTE3_LIBRARIES}
+    nftables
+)

@@ -37,6 +37,7 @@ add_executable(tcrd
     src/rpc/rpc_server.c
     src/container/container_manager.c
     src/container/crun_config.c
+    src/container/run_config.c
     src/image/image_manager.c
     src/network/dns_forwarder.c
     src/network/nat_network_manager.c

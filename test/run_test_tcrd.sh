@@ -398,6 +398,99 @@ run_tcr 0 "ps after auto-remove" ps
 assert_not_contains "auto-removed container gone" "test3"
 echo ""
 
+# ── run --config (detached, read-only, no-network) ──────────────────────────
+
+echo "--- run --config (basic) ---"
+
+CONFIG_FILE="$WORK_DIR/test_config.json"
+cat > "$CONFIG_FILE" <<EOF
+{
+  "image": "alpine",
+  "name": "config_test1",
+  "detached": true,
+  "readonly": true,
+  "noNetwork": true,
+  "command": ["cat", "/etc/os-release"]
+}
+EOF
+
+run_tcr 0 "run --config basic" run --config "$CONFIG_FILE"
+CONFIG_CTR_ID=$(echo "$LAST_OUTPUT" | tr -d '[:space:]')
+echo "  container: $CONFIG_CTR_ID"
+
+sleep 2
+
+run_tcr 0 "ps shows config container" ps
+assert_contains "ps shows config_test1" "config_test1"
+echo ""
+
+# ── run --config (with network and env) ──────────────────────────────────────
+
+echo "--- run --config (with network and env) ---"
+
+CONFIG_FILE2="$WORK_DIR/test_config2.json"
+cat > "$CONFIG_FILE2" <<EOF
+{
+  "image": "alpine",
+  "name": "config_test2",
+  "detached": true,
+  "env": { "MY_VAR": "from_config" },
+  "command": ["sleep", "300"]
+}
+EOF
+
+run_tcr 0 "run --config with network" run --config "$CONFIG_FILE2"
+CONFIG_CTR_ID2=$(echo "$LAST_OUTPUT" | tr -d '[:space:]')
+echo "  container: $CONFIG_CTR_ID2"
+
+sleep 3
+
+# exec to verify env var was set from config
+run_tcr 0 "exec env from config" exec config_test2 /bin/sh -c 'echo $MY_VAR'
+assert_contains "env from config value" "from_config"
+echo ""
+
+# ── run --config (error: conflicting network/noNetwork) ──────────────────────
+
+echo "--- run --config (error cases) ---"
+
+CONFIG_BAD="$WORK_DIR/test_config_bad.json"
+cat > "$CONFIG_BAD" <<EOF
+{
+  "image": "alpine",
+  "network": "mynet",
+  "noNetwork": true
+}
+EOF
+
+run_tcr 1 "run --config network conflict" run --config "$CONFIG_BAD"
+assert_contains "config conflict error" "mutually exclusive"
+
+# --config with extra args should fail
+run_tcr 1 "run --config with extra args" run --config "$CONFIG_FILE" -d
+assert_contains "config extra args error" "cannot be combined"
+
+# --config with missing file
+run_tcr 1 "run --config missing file" run --config /tmp/does_not_exist_tcr.json
+assert_contains "config missing file error" "failed to load"
+
+# --config with invalid JSON
+INVALID_JSON="$WORK_DIR/test_config_invalid.json"
+echo "{ not valid json }" > "$INVALID_JSON"
+run_tcr 1 "run --config invalid json" run --config "$INVALID_JSON"
+echo ""
+
+# ── Cleanup config test containers ──────────────────────────────────────────
+
+echo "--- cleanup config test containers ---"
+run_tcr 0 "kill config_test2" kill config_test2
+
+sleep 2
+
+run_tcr 0 "rm config_test1" rm config_test1
+run_tcr 0 "rm config_test2" rm config_test2
+echo ""
+
 # ── image rm (no containers referencing it) ──────────────────────────────────
 
 echo "--- image rm ---"

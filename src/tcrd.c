@@ -9,6 +9,7 @@
 
 #include "image/image_manager.h"
 #include "container/container_manager.h"
+#include "container/run_config.h"
 #include "network/nat_network_manager.h"
 #include "network/nat_network.h"
 #include "common/utils.h"
@@ -302,6 +303,83 @@ static int handle_run(rpc_request_handle h, const cJSON *params)
 
     container_args args = container_args_new();
     if (!args) { free(argv); return reply_error(g_ctx.server, h, ERR_INTERNAL, "OOM"); }
+
+    /* ── --config mode: parse JSON config file ────────────────────────── */
+    if (argc >= 2 && strcmp(argv[0], "--config") == 0) {
+        char *config_path = resolve_path(argv[1], pwd);
+        if (!config_path) {
+            container_args_free(args);
+            free(argv);
+            return reply_error(g_ctx.server, h, ERR_INTERNAL, "OOM");
+        }
+
+        if (argc > 2) {
+            free(config_path);
+            container_args_free(args);
+            free(argv);
+            return reply_error(g_ctx.server, h, ERR_INVALID_ARG,
+                               "--config cannot be combined with other arguments");
+        }
+
+        char *err_msg = NULL;
+        if (run_config_parse(config_path, args, &err_msg) != 0) {
+            free(config_path);
+            container_args_free(args);
+            free(argv);
+            int rc = reply_error(g_ctx.server, h, ERR_INVALID_ARG,
+                                 err_msg ? err_msg : "failed to parse config");
+            free(err_msg);
+            return rc;
+        }
+        free(config_path);
+
+        /* image_ref comes from the config */
+        const char *image_ref = container_args_get_image(args);
+        image img_check = image_manager_find_by_id_or_name(g_ctx.img_manager, image_ref);
+        if (!img_check) {
+            container_args_free(args);
+            free(argv);
+            return reply_error(g_ctx.server, h, ERR_IMAGE_NOT_FOUND, "image not found");
+        }
+
+        bool detached = container_args_get_detached(args);
+
+        container c = container_manager_create_container(g_ctx.ctr_manager, args);
+        container_args_free(args);
+        if (!c) {
+            free(argv);
+            return reply_error(g_ctx.server, h, ERR_INTERNAL, "failed to create container");
+        }
+
+        int rc;
+        if (detached) {
+            if (container_start(c) != 0) {
+                container_remove(c);
+                free(argv);
+                return reply_error(g_ctx.server, h, ERR_INTERNAL, "failed to start container");
+            }
+            char out[64];
+            snprintf(out, sizeof(out), "%s\n", container_get_id(c));
+            rc = reply_output(g_ctx.server, h, 0, out, NULL);
+        } else {
+            char **crun_argv;
+            size_t crun_argc;
+            if (container_get_crun_args(c, &crun_argv, &crun_argc) != 0) {
+                container_remove(c);
+                free(argv);
+                return reply_error(g_ctx.server, h, ERR_INTERNAL,
+                                   "failed to build crun args");
+            }
+            if (client_pid > 0)
+                container_monitor_process(c, client_pid);
+            rc = reply_exec(g_ctx.server, h, crun_argv, crun_argc);
+            container_free_crun_args(crun_argv, crun_argc);
+        }
+        free(argv);
+        return rc;
+    }
+
+    /* ── CLI argument mode ────────────────────────────────────────────── */
 
     /* Flags */
     bool detached = false;
@@ -1039,6 +1117,7 @@ static int handle_help(rpc_request_handle h)
         "  network rm <name>               Remove a NAT network\n"
         "\n"
         "Run options:\n"
+        "  --config <file>      Load all options from a JSON config file\n"
         "  -d                   Detached mode (background)\n"
         "  --name <name>        Container name\n"
         "  --rm                 Auto-remove on exit\n"

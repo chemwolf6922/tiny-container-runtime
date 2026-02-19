@@ -735,6 +735,16 @@ int container_args_set_command(container_args args, size_t argc, const char *con
     return 0;
 }
 
+const char *container_args_get_image(container_args args)
+{
+    return args ? args->image_ref : NULL;
+}
+
+bool container_args_get_detached(container_args args)
+{
+    return args ? args->detached : false;
+}
+
 int container_args_set_nat_network(container_args args, const char *nat_network_name)
 {
     if (!args) return -1;

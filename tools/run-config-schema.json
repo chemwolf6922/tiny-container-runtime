@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "tcr run config",
+  "description": "Configuration file for 'tcr run --config'. Defines all container arguments in a single JSON file.",
+  "type": "object",
+  "required": ["image"],
+  "additionalProperties": false,
+  "properties": {
+    "image": {
+      "type": "string",
+      "description": "Image reference (id or name:tag). Resolved via image_manager_find_by_id_or_name(): tried as id first, then parsed as name:tag (tag defaults to 'latest')."
+    },
+    "name": {
+      "type": "string",
+      "description": "Container name. If omitted, the auto-generated container ID is used.",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]*$"
+    },
+    "detached": {
+      "type": "boolean",
+      "default": false,
+      "description": "Run in detached mode (daemon-managed background). If false, the daemon returns execArgs for the client to execvp into crun."
+    },
+    "terminal": {
+      "type": "boolean",
+      "default": false,
+      "description": "Allocate a pseudo-TTY."
+    },
+    "readonly": {
+      "type": "boolean",
+      "default": false,
+      "description": "Read-only rootfs (no overlay). When true, the container runs directly on the squashfs image without an overlayfs upper layer."
+    },
+    "autoRemove": {
+      "type": "boolean",
+      "default": false,
+      "description": "Automatically remove the container when it exits."
+    },
+    "command": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "Command to run in the container (full argv). Overrides the image's default entrypoint/cmd."
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Environment variables as key-value pairs.",
+      "examples": [{ "MY_VAR": "hello", "DEBUG": "1" }]
+    },
+    "mounts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "destination"],
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "Host path. Relative paths are resolved against the config file's directory."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Mount point inside the container (absolute path)."
+          },
+          "readonly": {
+            "type": "boolean",
+            "default": false,
+            "description": "Mount as read-only."
+          }
+        }
+      },
+      "description": "Bind mounts from host into the container."
+    },
+    "tmpfs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["destination"],
+        "additionalProperties": false,
+        "properties": {
+          "destination": {
+            "type": "string",
+            "description": "Mount point inside the container (absolute path)."
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Size limit in bytes. If omitted, a reasonable default is used."
+          }
+        }
+      },
+      "description": "tmpfs mounts inside the container."
+    },
+    "ports": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["hostPort", "containerPort"],
+        "additionalProperties": false,
+        "properties": {
+          "hostPort": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "Port on the host to listen on."
+          },
+          "containerPort": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "Port inside the container to forward to."
+          },
+          "hostIp": {
+            "type": "string",
+            "default": "0.0.0.0",
+            "description": "Host IP address to bind. Defaults to 0.0.0.0 (all interfaces)."
+          },
+          "protocol": {
+            "type": "string",
+            "enum": ["tcp", "udp"],
+            "default": "tcp",
+            "description": "Transport protocol."
+          }
+        }
+      },
+      "description": "Port forwarding rules (DNAT). Requires a network."
+    },
+    "network": {
+      "type": "string",
+      "description": "NAT network name to join. If omitted, the default network 'tcr_default' is used. Mutually exclusive with noNetwork."
+    },
+    "noNetwork": {
+      "type": "boolean",
+      "default": false,
+      "description": "Disable networking entirely (no network namespace, bridge, or DNS). Mutually exclusive with network."
+    },
+    "restartPolicy": {
+      "type": "string",
+      "enum": ["no", "unless-stopped", "always"],
+      "default": "no",
+      "description": "Container restart policy. 'unless-stopped' and 'always' require detached mode."
+    },
+    "stopTimeout": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 10,
+      "description": "Seconds to wait after SIGTERM before sending SIGKILL on graceful stop."
+    }
+  }
+}
