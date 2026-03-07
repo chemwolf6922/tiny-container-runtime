@@ -30,6 +30,7 @@ Build:
 - libcjson, libuuid
 - libnl-3, libnl-route-3
 - libnftables
+- libxxhash
 
 Runtime:
 - Linux kernel with: overlayfs, squashfs, loop devices, network namespaces, nftables

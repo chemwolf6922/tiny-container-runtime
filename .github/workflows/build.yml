@@ -20,7 +20,8 @@ jobs:
             build-essential cmake pkg-config \
             libcjson-dev \
             libnl-3-dev libnl-route-3-dev \
-            libnftables-dev
+            libnftables-dev \
+            libxxhash-dev
 
       - name: Build and install libtev
         run: |

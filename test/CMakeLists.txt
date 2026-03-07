@@ -68,6 +68,7 @@ target_link_libraries(test_crun_config seccomp_resource cjson tev)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBNL3 REQUIRED libnl-3.0)
 pkg_check_modules(LIBNL_ROUTE3 REQUIRED libnl-route-3.0)
+pkg_check_modules(XXHASH REQUIRED libxxhash)
 
 add_executable(test_nat_network
     test_nat_network.c
@@ -83,6 +84,7 @@ target_include_directories(test_nat_network PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${LIBNL3_INCLUDE_DIRS}
     ${LIBNL_ROUTE3_INCLUDE_DIRS}
+    ${XXHASH_INCLUDE_DIRS}
 )
 
 target_link_libraries(test_nat_network
@@ -90,6 +92,7 @@ target_link_libraries(test_nat_network
     ${LIBNL_ROUTE3_LIBRARIES}
     nftables
     tev
+    ${XXHASH_LIBRARIES}
 )
 
 add_executable(test_nat_network_manager
@@ -107,6 +110,7 @@ target_include_directories(test_nat_network_manager PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${LIBNL3_INCLUDE_DIRS}
     ${LIBNL_ROUTE3_INCLUDE_DIRS}
+    ${XXHASH_INCLUDE_DIRS}
 )
 
 target_link_libraries(test_nat_network_manager
@@ -114,6 +118,7 @@ target_link_libraries(test_nat_network_manager
     ${LIBNL_ROUTE3_LIBRARIES}
     nftables
     tev
+    ${XXHASH_LIBRARIES}
 )
 
 add_executable(test_port_forwarder
@@ -149,6 +154,7 @@ target_include_directories(test_container_manager PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${LIBNL3_INCLUDE_DIRS}
     ${LIBNL_ROUTE3_INCLUDE_DIRS}
+    ${XXHASH_INCLUDE_DIRS}
 )
 
 target_link_libraries(test_container_manager
@@ -158,6 +164,7 @@ target_link_libraries(test_container_manager
     ${LIBNL3_LIBRARIES}
     ${LIBNL_ROUTE3_LIBRARIES}
     nftables
+    ${XXHASH_LIBRARIES}
 )
 
 add_executable(test_rpc
@@ -231,6 +238,7 @@ target_include_directories(test_tcrd_helper PRIVATE
     ../src
     ${LIBNL3_INCLUDE_DIRS}
     ${LIBNL_ROUTE3_INCLUDE_DIRS}
+    ${XXHASH_INCLUDE_DIRS}
 )
 
 target_compile_definitions(test_tcrd_helper PRIVATE
@@ -245,6 +253,7 @@ target_link_libraries(test_tcrd_helper
     ${LIBNL3_LIBRARIES}
     ${LIBNL_ROUTE3_LIBRARIES}
     nftables
+    ${XXHASH_LIBRARIES}
 )
 
 # --------------------------------------------------------------------------
@@ -288,6 +297,7 @@ target_include_directories(test_run_config PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${LIBNL3_INCLUDE_DIRS}
     ${LIBNL_ROUTE3_INCLUDE_DIRS}
+    ${XXHASH_INCLUDE_DIRS}
 )
 
 target_link_libraries(test_run_config
@@ -297,4 +307,5 @@ target_link_libraries(test_run_config
     ${LIBNL3_LIBRARIES}
     ${LIBNL_ROUTE3_LIBRARIES}
     nftables
+    ${XXHASH_LIBRARIES}
 )
