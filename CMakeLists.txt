@@ -29,6 +29,7 @@ target_link_libraries(tcr tev cjson)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBNL3 REQUIRED libnl-3.0)
 pkg_check_modules(LIBNL_ROUTE3 REQUIRED libnl-route-3.0)
+pkg_check_modules(XXHASH REQUIRED libxxhash)
 
 add_subdirectory(src/resource)
 
@@ -52,6 +53,7 @@ target_include_directories(tcrd PRIVATE
     src
     ${LIBNL3_INCLUDE_DIRS}
     ${LIBNL_ROUTE3_INCLUDE_DIRS}
+    ${XXHASH_INCLUDE_DIRS}
 )
 
 target_link_libraries(tcrd
@@ -61,6 +63,7 @@ target_link_libraries(tcrd
     ${LIBNL3_LIBRARIES}
     ${LIBNL_ROUTE3_LIBRARIES}
     nftables
+    ${XXHASH_LIBRARIES}
 )
 
 # ── Install ────────────────────────────────────────────────────────────────

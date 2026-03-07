@@ -20,14 +20,15 @@ jobs:
             build-essential cmake pkg-config \
             libcjson-dev \
             libnl-3-dev libnl-route-3-dev \
-            libnftables-dev
+            libnftables-dev \
+            libxxhash-dev
 
       - name: Build and install libtev
         run: |
           git clone --recursive https://github.com/chemwolf6922/tiny-event-loop.git /tmp/tev
-          cd /tmp/tev
-          make -j$(nproc)
-          sudo make install
+          cmake -B /tmp/tev/build -S /tmp/tev
+          cmake --build /tmp/tev/build -j$(nproc)
+          sudo cmake --install /tmp/tev/build
           sudo ldconfig
 
       - name: Configure

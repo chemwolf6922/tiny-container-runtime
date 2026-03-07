@@ -4,7 +4,7 @@
 
 #include "nat_network.h"
 
-#include <tev/xxhash.h>
+#include <xxhash.h>
 
 #include <netlink/netlink.h>
 #include <netlink/socket.h>
