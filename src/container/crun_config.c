@@ -47,6 +47,35 @@ static const struct arch_entry ARCH_MAP[] = {
 };
 static const size_t NUM_ARCH_MAP = sizeof(ARCH_MAP) / sizeof(ARCH_MAP[0]);
 
+/*
+ * Short arch name mapping used in seccomp profile includes/excludes.
+ * Maps SCMP_ARCH_* to the short names used by containers/common.
+ */
+struct scmp_arch_short {
+    const char *scmp_arch;
+    const char *short_name;
+};
+
+static const struct scmp_arch_short SCMP_ARCH_SHORT_MAP[] = {
+    { "SCMP_ARCH_X86_64",      "amd64"   },
+    { "SCMP_ARCH_X86",         "x86"     },
+    { "SCMP_ARCH_X32",         "x32"     },
+    { "SCMP_ARCH_AARCH64",     "arm64"   },
+    { "SCMP_ARCH_ARM",         "arm"     },
+    { "SCMP_ARCH_PPC64LE",     "ppc64le" },
+    { "SCMP_ARCH_S390X",       "s390x"   },
+    { "SCMP_ARCH_S390",        "s390"    },
+    { "SCMP_ARCH_MIPS64",      "mips64"  },
+    { "SCMP_ARCH_MIPS64N32",   "mips64n32" },
+    { "SCMP_ARCH_MIPS",        "mips"    },
+    { "SCMP_ARCH_MIPSEL64",    "mipsel64" },
+    { "SCMP_ARCH_MIPSEL64N32", "mipsel64n32" },
+    { "SCMP_ARCH_MIPSEL",      "mipsel"  },
+    { "SCMP_ARCH_RISCV64",     "riscv64" },
+};
+static const size_t NUM_SCMP_ARCH_SHORT_MAP =
+    sizeof(SCMP_ARCH_SHORT_MAP) / sizeof(SCMP_ARCH_SHORT_MAP[0]);
+
 /* Default mounts that must be present in config.json */
 struct default_mount {
     const char *destination;
@@ -133,26 +162,113 @@ static const char *get_native_scmp_arch(void)
 }
 
 /**
+ * Check if any string in the cJSON array matches one of native_short_names.
+ * native_short_names is a NULL-terminated array of short arch names.
+ */
+static bool arches_match(const cJSON *arches_arr,
+                         const char *const *native_short_names)
+{
+    if (!arches_arr || !cJSON_IsArray(arches_arr) || !native_short_names)
+        return false;
+    const cJSON *arch;
+    cJSON_ArrayForEach(arch, arches_arr) {
+        if (!cJSON_IsString(arch)) continue;
+        for (const char *const *p = native_short_names; *p; p++) {
+            if (strcmp(arch->valuestring, *p) == 0)
+                return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Check if any capability in the cJSON array matches one in granted_caps.
+ * granted_caps / num_caps: the set of capabilities the container has.
+ */
+static bool caps_match(const cJSON *caps_arr,
+                       const char *const *granted_caps, size_t num_caps)
+{
+    if (!caps_arr || !cJSON_IsArray(caps_arr)) return false;
+    const cJSON *cap;
+    cJSON_ArrayForEach(cap, caps_arr) {
+        if (!cJSON_IsString(cap)) continue;
+        for (size_t i = 0; i < num_caps; i++) {
+            if (strcmp(cap->valuestring, granted_caps[i]) == 0)
+                return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Evaluate the "includes" / "excludes" conditions on a seccomp entry.
+ *
+ * includes: if non-empty, the entry applies ONLY when at least one
+ *   condition matches (arches match OR caps match).
+ * excludes: if non-empty, the entry is SKIPPED when any condition
+ *   matches (arches match OR caps match).
+ *
+ * Returns true if the entry should be included, false to skip.
+ */
+static bool evaluate_conditions(const cJSON *src,
+                                const char *const *native_short_names,
+                                const char *const *granted_caps,
+                                size_t num_caps)
+{
+    /* --- includes --- */
+    const cJSON *includes = cJSON_GetObjectItemCaseSensitive(src, "includes");
+    if (includes && cJSON_IsObject(includes) && includes->child) {
+        bool matched = false;
+        const cJSON *inc_arches = cJSON_GetObjectItemCaseSensitive(includes, "arches");
+        if (inc_arches && cJSON_IsArray(inc_arches) && cJSON_GetArraySize(inc_arches) > 0) {
+            if (arches_match(inc_arches, native_short_names))
+                matched = true;
+        }
+        const cJSON *inc_caps = cJSON_GetObjectItemCaseSensitive(includes, "caps");
+        if (inc_caps && cJSON_IsArray(inc_caps) && cJSON_GetArraySize(inc_caps) > 0) {
+            if (caps_match(inc_caps, granted_caps, num_caps))
+                matched = true;
+        }
+        if (!matched)
+            return false;
+    }
+
+    /* --- excludes --- */
+    const cJSON *excludes = cJSON_GetObjectItemCaseSensitive(src, "excludes");
+    if (excludes && cJSON_IsObject(excludes) && excludes->child) {
+        const cJSON *exc_arches = cJSON_GetObjectItemCaseSensitive(excludes, "arches");
+        if (exc_arches && cJSON_IsArray(exc_arches) && cJSON_GetArraySize(exc_arches) > 0) {
+            if (arches_match(exc_arches, native_short_names))
+                return false;
+        }
+        const cJSON *exc_caps = cJSON_GetObjectItemCaseSensitive(excludes, "caps");
+        if (exc_caps && cJSON_IsArray(exc_caps) && cJSON_GetArraySize(exc_caps) > 0) {
+            if (caps_match(exc_caps, granted_caps, num_caps))
+                return false;
+        }
+    }
+
+    return true;
+}
+
+/**
  * Convert a single syscall entry from containers/common format to OCI format.
  * Strips: includes, excludes, comment, errno fields.
  * Keeps: names, action, args (if non-empty), errnoRet (if present and non-zero).
  *
- * Entries with non-empty "includes" or "excludes" are skipped (returns NULL)
- * because they are architecture- or capability-conditional and require runtime
- * evaluation that is not trivially portable. The base entries (with empty
- * includes/excludes) cover the common case.
+ * Conditional entries (with includes/excludes) are evaluated against the
+ * runtime architecture and granted capabilities. Entries whose conditions
+ * do not match are skipped (returns NULL).
  *
  * Returns a new cJSON object, or NULL to skip.
  */
-static cJSON *convert_syscall_entry(const cJSON *src)
+static cJSON *convert_syscall_entry(const cJSON *src,
+                                    const char *const *native_short_names,
+                                    const char *const *granted_caps,
+                                    size_t num_caps)
 {
-    /* Skip entries with non-empty includes or excludes — they are conditional */
-    const cJSON *includes = cJSON_GetObjectItemCaseSensitive(src, "includes");
-    if (includes && cJSON_IsObject(includes) && includes->child)
-        return NULL;
-
-    const cJSON *excludes = cJSON_GetObjectItemCaseSensitive(src, "excludes");
-    if (excludes && cJSON_IsObject(excludes) && excludes->child)
+    /* Evaluate includes/excludes conditions */
+    if (!evaluate_conditions(src, native_short_names, granted_caps, num_caps))
         return NULL;
 
     cJSON *entry = cJSON_CreateObject();
@@ -278,14 +394,50 @@ static cJSON *build_oci_seccomp(void)
         goto fail;
     }
 
-    /* syscalls — convert each entry, skipping conditional ones */
+    /* Determine native short arch names for condition evaluation.
+     * Includes the primary arch and all sub-architectures. */
+    const char *short_names[8] = {0}; /* NULL-terminated */
+    if (native) {
+        size_t si = 0;
+        /* Map native SCMP_ARCH to short name */
+        for (size_t i = 0; i < NUM_SCMP_ARCH_SHORT_MAP && si < 7; i++) {
+            if (strcmp(SCMP_ARCH_SHORT_MAP[i].scmp_arch, native) == 0) {
+                short_names[si++] = SCMP_ARCH_SHORT_MAP[i].short_name;
+                break;
+            }
+        }
+        /* Also add short names for sub-architectures */
+        const cJSON *arch_map_arr = cJSON_GetObjectItemCaseSensitive(src, "archMap");
+        const cJSON *map_entry2;
+        cJSON_ArrayForEach(map_entry2, arch_map_arr) {
+            const cJSON *arch_name2 = cJSON_GetObjectItemCaseSensitive(map_entry2, "architecture");
+            if (!cJSON_IsString(arch_name2) || strcmp(arch_name2->valuestring, native) != 0)
+                continue;
+            const cJSON *sub_archs2 = cJSON_GetObjectItemCaseSensitive(map_entry2, "subArchitectures");
+            const cJSON *sub2;
+            cJSON_ArrayForEach(sub2, sub_archs2) {
+                if (!cJSON_IsString(sub2) || si >= 7) continue;
+                for (size_t i = 0; i < NUM_SCMP_ARCH_SHORT_MAP; i++) {
+                    if (strcmp(SCMP_ARCH_SHORT_MAP[i].scmp_arch, sub2->valuestring) == 0) {
+                        short_names[si++] = SCMP_ARCH_SHORT_MAP[i].short_name;
+                        break;
+                    }
+                }
+            }
+            break;
+        }
+        short_names[si] = NULL;
+    }
+
+    /* syscalls — convert each entry, evaluating conditions */
     cJSON *syscalls = cJSON_CreateArray();
     if (!syscalls) goto fail;
 
     const cJSON *src_syscalls = cJSON_GetObjectItemCaseSensitive(src, "syscalls");
     const cJSON *sc;
     cJSON_ArrayForEach(sc, src_syscalls) {
-        cJSON *converted = convert_syscall_entry(sc);
+        cJSON *converted = convert_syscall_entry(
+            sc, short_names, DEFAULT_CAPS, NUM_DEFAULT_CAPS);
         if (converted && !cJSON_AddItemToArray(syscalls, converted))
             cJSON_Delete(converted);
     }
